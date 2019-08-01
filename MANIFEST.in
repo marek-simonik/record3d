@@ -1,0 +1,5 @@
+include .gitignore CMakeLists.txt demo-main.py LICENSE MANIFEST.in README.md setup.py
+recursive-include include *
+recursive-include libs *
+recursive-include python-bindings *
+recursive-include src *
