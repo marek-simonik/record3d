@@ -36,7 +36,7 @@ endif ()
 ### Create C++ library
 ########################################################################
 include(GNUInstallDirs)
-add_library(record3d_cpp SHARED src/Record3DStream.cpp src/JPEGDecoder.cpp)
+add_library(record3d_cpp STATIC src/Record3DStream.cpp src/JPEGDecoder.cpp)
 include_directories(include)
 target_link_libraries(record3d_cpp PUBLIC lzfse usbmuxd)
 install(TARGETS record3d_cpp lzfse usbmuxd plist EXPORT Record3DConfig
