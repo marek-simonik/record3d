@@ -76,6 +76,7 @@ namespace Record3D
                                       {
                                           StreamProcessingRunloop();
                                       } );
+        runloopThread_.detach();
         return true;
     }
 
