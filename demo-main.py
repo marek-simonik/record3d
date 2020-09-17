@@ -52,8 +52,11 @@ class DemoApp:
             # You can now e.g. create point cloud by projecting the depth map using the intrinsic matrix.
 
             # Postprocess it
-            depth = cv2.flip(depth, 1)
-            rgb = cv2.flip(rgb, 1)
+            are_truedepth_camera_data_being_streamed = depth.shape[0] == 640
+            if are_truedepth_camera_data_being_streamed:
+                depth = cv2.flip(depth, 1)
+                rgb = cv2.flip(rgb, 1)
+
             rgb = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
 
             # Show the RGBD Stream

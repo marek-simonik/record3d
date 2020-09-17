@@ -1,5 +1,7 @@
 # [*Record3D – Point Cloud Animation and Streaming*](https://record3d.app/): the accompanying library 
 
+**2020/09/17 Update**: Introduced LiDAR support. To be used with Record3D 1.4 and newer.
+
 This project provides C++ and Python libraries for the [iOS Record3D app](https://record3d.app/) which allows you (among other features) to 
 live-stream RGB**D** video from iOS devices with TrueDepth camera to a computer via USB cable.
 
@@ -47,7 +49,7 @@ After running the following, you will find compiled static library in the `build
 ## Sample applications
 There is a Python (`demo-main.py`) and C++ (`src/DemoMain.cpp`) sample project that demonstrates how to use the library to receive and display RGBD stream.
 
-Before running the sample applications, connect your iOS device to your computer and open the Record3D iOS app. Go to the Settings tab and enable "USB Streaming mode". Note that the fr
+Before running the sample applications, connect your iOS device to your computer and open the Record3D iOS app. Go to the Settings tab and enable "USB Streaming mode".
 
 ### Python
 After installing the `record3d` library, run `python demo-main.py` and press the record button to start streaming RGBD data.

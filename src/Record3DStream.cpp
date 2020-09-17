@@ -20,7 +20,7 @@ namespace Record3D
         depthImageBuffer_.resize( depthBufferSize_ );
 
         constexpr int numRGBChannels = 3;
-        RGBImageBuffer_.resize( Record3DStream::FRAME_WIDTH * Record3DStream::FRAME_HEIGHT * sizeof( uint8_t ) * numRGBChannels );
+        RGBImageBuffer_.resize(Record3DStream::MAXIMUM_FRAME_WIDTH * Record3DStream::MAXIMUM_FRAME_HEIGHT * sizeof( uint8_t ) * numRGBChannels );
     }
 
     Record3DStream::~Record3DStream()
@@ -107,6 +107,8 @@ namespace Record3D
 
     struct Record3DHeader
     {
+        uint32_t frameWidth;
+        uint32_t frameHeight;
         uint32_t rgbSize;
         uint32_t depthSize;
     };
@@ -153,7 +155,7 @@ namespace Record3D
             currSize = record3DHeader.rgbSize;
             int loadedWidth, loadedHeight, loadedChannels;
             uint8_t* rgbPixels = stbi_load_from_memory( rawMessageBuffer.data() + offset, currSize, &loadedWidth, &loadedHeight, &loadedChannels, STBI_rgb );
-            memcpy( RGBImageBuffer_.data(), rgbPixels, RGBImageBuffer_.size());
+            memcpy( RGBImageBuffer_.data(), rgbPixels, loadedWidth * loadedHeight * loadedChannels * sizeof(uint8_t));
             stbi_image_free( rgbPixels );
             offset += currSize;
 
@@ -163,10 +165,13 @@ namespace Record3D
 
             if ( onNewFrame )
             {
+                currentFrameWidth_ = record3DHeader.frameWidth;
+                currentFrameHeight_ = record3DHeader.frameHeight;
+
 #ifdef PYTHON_BINDINGS_BUILD
-                onNewFrame();
+                onNewFrame( );
 #else
-                onNewFrame( RGBImageBuffer_, depthImageBuffer_, FRAME_WIDTH, FRAME_HEIGHT, intrinsicMatrixCoeffs_ );
+                onNewFrame( RGBImageBuffer_, depthImageBuffer_, record3DHeader.frameWidth, record3DHeader.frameHeight, intrinsicMatrixCoeffs_ );
 #endif
             }
         }

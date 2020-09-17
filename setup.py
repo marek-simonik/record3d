@@ -67,7 +67,7 @@ with open(path.join(this_directory, 'README.md'), mode='rb') as f:
 
 setup(
     name='record3d',
-    version='1.0.0',
+    version='1.2.0',
     license='lgpl-2.1',
     author='Marek Simonik',
     author_email='admin@record3d.app',

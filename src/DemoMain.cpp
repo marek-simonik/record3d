@@ -67,8 +67,14 @@ public:
 #ifdef HAS_OPENCV
                 // Postprocess images
                 cv::cvtColor( imgRGB_, imgRGB_, cv::COLOR_RGB2BGR );
-                cv::flip( imgRGB_, imgRGB_, 1 );
-                cv::flip( imgDepth_, imgDepth_, 1 );
+
+                // The TrueDepth camera is a selfie camera; we mirror the RGBD frame so it looks plausible.
+                bool areTrueDepthDataBeingStreamed = imgDepth_.rows == Record3D::Record3DStream::MAXIMUM_FRAME_HEIGHT && imgDepth_.cols == Record3D::Record3DStream::MAXIMUM_FRAME_WIDTH;
+                if ( areTrueDepthDataBeingStreamed )
+                {
+                    cv::flip( imgRGB_, imgRGB_, 1 );
+                    cv::flip( imgDepth_, imgDepth_, 1 );
+                }
 
                 // Show images
                 cv::imshow( "RGB", imgRGB_ );
@@ -97,8 +103,22 @@ private:
                     Record3D::IntrinsicMatrixCoeffs $K)
     {
 #ifdef HAS_OPENCV
-        memcpy( imgRGB_.data, $rgbFrame.data(), $rgbFrame.size());
-        memcpy( imgDepth_.data, $depthFrame.data(), $depthFrame.size());
+        // When we switch between the TrueDepth and the LiDAR camera, the size frame size changes.
+        // Recreate the RGB and Depth images with fitting size.
+        if (    imgRGB_.rows != $frameHeight || imgRGB_.cols != $frameWidth
+             || imgDepth_.rows != $frameHeight || imgDepth_.cols != $frameWidth )
+        {
+            imgRGB_.release();
+            imgDepth_.release();
+
+            imgRGB_ = cv::Mat::zeros( $frameHeight, $frameWidth, CV_8UC3);
+            imgDepth_ = cv::Mat::zeros( $frameHeight, $frameWidth, CV_32F );
+        }
+
+        // The `BufferRGB` and `BufferDepth` may be larger than the actual payload, therefore the true frame size is computed.
+        constexpr int numRGBChannels = 3;
+        memcpy( imgRGB_.data, $rgbFrame.data(), $frameWidth * $frameHeight * numRGBChannels * sizeof(uint8_t));
+        memcpy( imgDepth_.data, $depthFrame.data(), $frameWidth * $frameHeight * sizeof(float));
 #endif
         mainThreadLock_.unlock();
     }
@@ -111,8 +131,8 @@ private:
 #endif
 
 #ifdef HAS_OPENCV
-    cv::Mat imgRGB_ = cv::Mat::zeros( Record3D::Record3DStream::FRAME_HEIGHT, Record3D::Record3DStream::FRAME_WIDTH, CV_8UC3);
-    cv::Mat imgDepth_ = cv::Mat::zeros( Record3D::Record3DStream::FRAME_HEIGHT, Record3D::Record3DStream::FRAME_WIDTH, CV_32F );
+    cv::Mat imgRGB_ = cv::Mat::zeros(Record3D::Record3DStream::MAXIMUM_FRAME_HEIGHT, Record3D::Record3DStream::MAXIMUM_FRAME_WIDTH, CV_8UC3);;
+    cv::Mat imgDepth_ = cv::Mat::zeros(Record3D::Record3DStream::MAXIMUM_FRAME_HEIGHT, Record3D::Record3DStream::MAXIMUM_FRAME_WIDTH, CV_32F );;
 #endif
 };
 

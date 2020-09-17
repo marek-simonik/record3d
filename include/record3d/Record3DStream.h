@@ -94,8 +94,8 @@ namespace Record3D
     public:
         // Constants
         static constexpr uint16_t DEVICE_PORT{ 1337 }; /** Port on iDevice that we are listening to for RGBD stream. */
-        static constexpr uint32_t FRAME_WIDTH{ 480 }; /** Width of the RGB and Depth components of the RGBD stream. */
-        static constexpr uint32_t FRAME_HEIGHT{ 640 }; /** Height of the RGB and Depth components of the RGBD stream. */
+        static constexpr uint32_t MAXIMUM_FRAME_WIDTH{ 480 }; /** Maximum width of the RGB and Depth components of the RGBD stream. */
+        static constexpr uint32_t MAXIMUM_FRAME_HEIGHT{ 640 }; /** Maximum height of the RGB and Depth components of the RGBD stream. */
 
 #ifdef PYTHON_BINDINGS_BUILD
         /**
@@ -141,12 +141,16 @@ namespace Record3D
          */
         py::array_t<float> GetCurrentDepthFrame()
         {
-            auto result        = py::array_t<float>(FRAME_WIDTH * FRAME_HEIGHT);
+            size_t currentFrameWidth = currentFrameWidth_;
+            size_t currentFrameHeight = currentFrameHeight_;
+
+            size_t bufferSize  = currentFrameWidth * currentFrameHeight * sizeof(float);
+            auto result        = py::array_t<float>(currentFrameWidth * currentFrameHeight);
             auto result_buffer = result.request();
             float *result_ptr  = (float *) result_buffer.ptr;
 
-            std::memcpy(result_ptr, depthImageBuffer_.data(), depthImageBuffer_.size());
-            result.resize(std::vector<int>{static_cast<int>(FRAME_HEIGHT), static_cast<int>(FRAME_WIDTH)});
+            std::memcpy(result_ptr, depthImageBuffer_.data(), bufferSize);
+            result.resize(std::vector<int>{static_cast<int>(currentFrameHeight), static_cast<int>(currentFrameWidth)});
 
             return result;
         }
@@ -158,12 +162,17 @@ namespace Record3D
          */
         py::array_t<uint8_t> GetCurrentRGBFrame()
         {
-            auto result        = py::array_t<uint8_t>(FRAME_WIDTH * FRAME_HEIGHT * 3);
-            auto result_buffer = result.request();
-            float *result_ptr  = (float *) result_buffer.ptr;
+            size_t currentFrameWidth = currentFrameWidth_;
+            size_t currentFrameHeight = currentFrameHeight_;
 
-            std::memcpy(result_ptr, RGBImageBuffer_.data(), RGBImageBuffer_.size());
-            result.resize(std::vector<int>{static_cast<int>(FRAME_HEIGHT), static_cast<int>(FRAME_WIDTH), 3});
+            constexpr int numChannels = 3;
+            size_t bufferSize  = currentFrameWidth * currentFrameHeight * numChannels * sizeof(uint8_t);
+            auto result        = py::array_t<uint8_t>(bufferSize);
+            auto result_buffer = result.request();
+            uint8_t *result_ptr  = (uint8_t *) result_buffer.ptr;
+
+            std::memcpy(result_ptr, RGBImageBuffer_.data(), bufferSize);
+            result.resize(std::vector<int>{static_cast<int>(currentFrameHeight), static_cast<int>(currentFrameWidth), numChannels});
 
             return result;
         }
@@ -179,7 +188,10 @@ namespace Record3D
         }
 #endif
     private:
-        static constexpr size_t depthBufferSize_{ FRAME_WIDTH * FRAME_HEIGHT * sizeof( float ) }; /** Size in bytes of decompressed Depth frame. */
+        static constexpr size_t depthBufferSize_{MAXIMUM_FRAME_WIDTH * MAXIMUM_FRAME_HEIGHT * sizeof( float ) }; /** Size in bytes of decompressed Depth frame. */
+
+        size_t currentFrameWidth_{ MAXIMUM_FRAME_WIDTH };
+        size_t currentFrameHeight_{ MAXIMUM_FRAME_HEIGHT };
 
         uint8_t* compressedDepthBuffer_{ nullptr }; /** Preallocated buffer holding decompressed depth data. */
         uint8_t* lzfseScratchBuffer_{ nullptr }; /** Preallocated LZFSE scratch buffer. */
