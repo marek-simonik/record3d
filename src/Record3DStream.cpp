@@ -2,6 +2,7 @@
 #include "JPEGDecoder.h"
 #include <lzfse.h>
 #include <usbmuxd.h>
+#include <cstring>
 #include <array>
 
 #define NTOHL_(n) (((((unsigned long)(n) & 0xFF)) << 24) | \
