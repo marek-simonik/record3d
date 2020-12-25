@@ -128,11 +128,7 @@ private:
     }
 
 private:
-#if WIN32
     std::recursive_mutex mainThreadLock_{};
-#else
-    std::mutex mainThreadLock_{};
-#endif
 
 #ifdef HAS_OPENCV
     cv::Mat imgRGB_ = cv::Mat::zeros(Record3D::Record3DStream::MAXIMUM_FRAME_HEIGHT, Record3D::Record3DStream::MAXIMUM_FRAME_WIDTH, CV_8UC3);;
