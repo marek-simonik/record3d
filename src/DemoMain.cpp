@@ -62,23 +62,27 @@ public:
             while ( true )
             {
                 // Wait for the callback thread to receive new frame and unlock this thread
-                mainThreadLock_.lock();
-
 #ifdef HAS_OPENCV
+                cv::Mat rgb, depth;
+                {
+                    std::lock_guard<std::recursive_mutex> lock(mainThreadLock_);
+                    rgb = imgRGB_.clone();
+                    depth = imgDepth_.clone();
+                }
                 // Postprocess images
-                cv::cvtColor( imgRGB_, imgRGB_, cv::COLOR_RGB2BGR );
+                cv::cvtColor( rgb, rgb, cv::COLOR_RGB2BGR );
 
                 // The TrueDepth camera is a selfie camera; we mirror the RGBD frame so it looks plausible.
-                bool areTrueDepthDataBeingStreamed = imgDepth_.rows == Record3D::Record3DStream::MAXIMUM_FRAME_HEIGHT && imgDepth_.cols == Record3D::Record3DStream::MAXIMUM_FRAME_WIDTH;
+                bool areTrueDepthDataBeingStreamed = depth.rows == Record3D::Record3DStream::MAXIMUM_FRAME_HEIGHT && depth.cols == Record3D::Record3DStream::MAXIMUM_FRAME_WIDTH;
                 if ( areTrueDepthDataBeingStreamed )
                 {
-                    cv::flip( imgRGB_, imgRGB_, 1 );
-                    cv::flip( imgDepth_, imgDepth_, 1 );
+                    cv::flip( rgb, rgb, 1 );
+                    cv::flip( depth, depth, 1 );
                 }
 
                 // Show images
-                cv::imshow( "RGB", imgRGB_ );
-                cv::imshow( "Depth", imgDepth_ );
+                cv::imshow( "RGB", rgb );
+                cv::imshow( "Depth", depth );
                 cv::waitKey( 1 );
 #endif
             }
@@ -103,6 +107,7 @@ private:
                     Record3D::IntrinsicMatrixCoeffs $K)
     {
 #ifdef HAS_OPENCV
+        std::lock_guard<std::recursive_mutex> lock(mainThreadLock_);
         // When we switch between the TrueDepth and the LiDAR camera, the size frame size changes.
         // Recreate the RGB and Depth images with fitting size.
         if (    imgRGB_.rows != $frameHeight || imgRGB_.cols != $frameWidth
@@ -120,7 +125,6 @@ private:
         memcpy( imgRGB_.data, $rgbFrame.data(), $frameWidth * $frameHeight * numRGBChannels * sizeof(uint8_t));
         memcpy( imgDepth_.data, $depthFrame.data(), $frameWidth * $frameHeight * sizeof(float));
 #endif
-        mainThreadLock_.unlock();
     }
 
 private:
