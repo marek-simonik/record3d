@@ -1,6 +1,7 @@
 # [*Record3D – Point Cloud Animation and Streaming*](https://record3d.app/): the accompanying library 
 
 **2021/07/28 Update**: Introduced support for higher-quality RGB LiDAR streaming. **To be used with Record3D 1.6 and newer.**
+
 **2020/09/17 Update**: Introduced LiDAR support. To be used with Record3D 1.4 and newer.
 
 This project provides C++ and Python libraries for the [iOS Record3D app](https://record3d.app/) which allows you (among other features) to 
