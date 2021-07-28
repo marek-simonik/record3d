@@ -79,7 +79,7 @@ namespace Record3D
          * @param $destinationBuffer buffer into which the decompressed depth frame is going to be written.
          * @returns pointer to the decompressed buffer. In case of decompression failure, `nullptr` is returned.
          */
-        uint8_t* DecompressDepthBuffer(const uint8_t* $compressedDepthBuffer, size_t $compressedDepthBufferSize, uint8_t* $destinationBuffer);
+        uint8_t* DecompressDepthBuffer(const uint8_t* $compressedDepthBuffer, size_t $compressedDepthBufferSize, std::vector<uint8_t> &$destinationBuffer);
 
         /**
          * Wraps the standard `recv()` function to ensure the *exact* amount of bytes (`$numBytesToRead`) is read into the $outputBuffer.
@@ -94,8 +94,6 @@ namespace Record3D
     public:
         // Constants
         static constexpr uint16_t DEVICE_PORT{ 1337 }; /** Port on iDevice that we are listening to for RGBD stream. */
-        static constexpr uint32_t MAXIMUM_FRAME_WIDTH{ 480 }; /** Maximum width of the RGB and Depth components of the RGBD stream. */
-        static constexpr uint32_t MAXIMUM_FRAME_HEIGHT{ 640 }; /** Maximum height of the RGB and Depth components of the RGBD stream. */
 
 #ifdef PYTHON_BINDINGS_BUILD
         /**
@@ -124,8 +122,11 @@ namespace Record3D
          */
         std::function<void(const Record3D::BufferRGB &$rgbFrame,
                            const Record3D::BufferDepth &$depthFrame,
-                           uint32_t $frameWidth,
-                           uint32_t $frameHeight,
+                           uint32_t   $rgbWidth,
+                           uint32_t   $rgbHeight,
+                           uint32_t   $depthWidth,
+                           uint32_t   $depthHeight,
+                           DeviceType $deviceType,
                            Record3D::IntrinsicMatrixCoeffs $K)> onNewFrame{};
 #endif
         /**
@@ -141,8 +142,8 @@ namespace Record3D
          */
         py::array_t<float> GetCurrentDepthFrame()
         {
-            size_t currentFrameWidth = currentFrameWidth_;
-            size_t currentFrameHeight = currentFrameHeight_;
+            size_t currentFrameWidth = currentFrameDepthWidth_;
+            size_t currentFrameHeight = currentFrameDepthHeight_;
 
             size_t bufferSize  = currentFrameWidth * currentFrameHeight * sizeof(float);
             auto result        = py::array_t<float>(currentFrameWidth * currentFrameHeight);
@@ -162,8 +163,8 @@ namespace Record3D
          */
         py::array_t<uint8_t> GetCurrentRGBFrame()
         {
-            size_t currentFrameWidth = currentFrameWidth_;
-            size_t currentFrameHeight = currentFrameHeight_;
+            size_t currentFrameWidth = currentFrameRGBWidth_;
+            size_t currentFrameHeight = currentFrameRGBHeight_;
 
             constexpr int numChannels = 3;
             size_t bufferSize  = currentFrameWidth * currentFrameHeight * numChannels * sizeof(uint8_t);
@@ -184,16 +185,26 @@ namespace Record3D
          */
         IntrinsicMatrixCoeffs GetCurrentIntrinsicMatrix()
         {
-            return intrinsicMatrixCoeffs_;
+            return rgbIntrinsicMatrixCoeffs_;
+        }
+
+        /**
+         * NOTE: This is alternative API for Python.
+         *
+         * @returns the type of camera (TrueDeph = 0, LiDAR = 1).
+         */
+        uint32_t GetCurrentDeviceType()
+        {
+            return (uint32_t) currentDeviceType_;
         }
 #endif
     private:
-        static constexpr size_t depthBufferSize_{MAXIMUM_FRAME_WIDTH * MAXIMUM_FRAME_HEIGHT * sizeof( float ) }; /** Size in bytes of decompressed Depth frame. */
+        size_t currentFrameRGBWidth_{ 0 };
+        size_t currentFrameRGBHeight_{ 0 };
+        size_t currentFrameDepthWidth_{ 0 };
+        size_t currentFrameDepthHeight_{ 0 };
+        DeviceType currentDeviceType_ {};
 
-        size_t currentFrameWidth_{ MAXIMUM_FRAME_WIDTH };
-        size_t currentFrameHeight_{ MAXIMUM_FRAME_HEIGHT };
-
-        uint8_t* compressedDepthBuffer_{ nullptr }; /** Preallocated buffer holding decompressed depth data. */
         uint8_t* lzfseScratchBuffer_{ nullptr }; /** Preallocated LZFSE scratch buffer. */
 
         int socketHandle_{ -1 }; /** Socket handle representing connection to iDevice. */
@@ -204,7 +215,7 @@ namespace Record3D
 
         std::vector<uint8_t> depthImageBuffer_{}; /** Holds the most recent Depth buffer. */
         std::vector<uint8_t> RGBImageBuffer_{}; /** Holds the most recent RGB buffer. */
-        IntrinsicMatrixCoeffs intrinsicMatrixCoeffs_{}; /** Holds the intrinsic matrix of the most recent Depth frame. */
+        IntrinsicMatrixCoeffs rgbIntrinsicMatrixCoeffs_{}; /** Holds the intrinsic matrix of the most recent Depth frame. */
     };
 }
 #endif //CPP_RECORD3DSTREAM_H

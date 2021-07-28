@@ -8,6 +8,8 @@ class DemoApp:
     def __init__(self):
         self.event = Event()
         self.session = None
+        self.DEVICE_TYPE__TRUEDEPTH = 0
+        self.DEVICE_TYPE__LIDAR = 1
 
     def on_new_frame(self):
         """
@@ -40,7 +42,6 @@ class DemoApp:
                          [        0, coeffs.fy, coeffs.ty],
                          [        0,         0,         1]])
 
-
     def start_processing_stream(self):
         while True:
             self.event.wait()  # Wait for new frame to arrive
@@ -49,11 +50,11 @@ class DemoApp:
             depth = self.session.get_depth_frame()
             rgb = self.session.get_rgb_frame()
             intrinsic_mat = self.get_intrinsic_mat_from_coeffs(self.session.get_intrinsic_mat())
+            print(intrinsic_mat)
             # You can now e.g. create point cloud by projecting the depth map using the intrinsic matrix.
 
             # Postprocess it
-            are_truedepth_camera_data_being_streamed = depth.shape[0] == 640
-            if are_truedepth_camera_data_being_streamed:
+            if self.session.get_device_type() == self.DEVICE_TYPE__TRUEDEPTH:
                 depth = cv2.flip(depth, 1)
                 rgb = cv2.flip(rgb, 1)
 

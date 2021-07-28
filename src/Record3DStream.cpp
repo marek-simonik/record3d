@@ -14,20 +14,13 @@
 namespace Record3D
 {
     Record3DStream::Record3DStream()
+        : lzfseScratchBuffer_( new uint8_t[lzfse_decode_scratch_size()] )
     {
-        compressedDepthBuffer_ = new uint8_t[depthBufferSize_];
-        lzfseScratchBuffer_ = new uint8_t[lzfse_decode_scratch_size()];
-
-        depthImageBuffer_.resize( depthBufferSize_ );
-
-        constexpr int numRGBChannels = 3;
-        RGBImageBuffer_.resize(Record3DStream::MAXIMUM_FRAME_WIDTH * Record3DStream::MAXIMUM_FRAME_HEIGHT * sizeof( uint8_t ) * numRGBChannels );
     }
 
     Record3DStream::~Record3DStream()
     {
         delete[] lzfseScratchBuffer_;
-        delete[] compressedDepthBuffer_;
     }
 
     std::vector<DeviceInfo> Record3DStream::GetConnectedDevices()
@@ -108,16 +101,19 @@ namespace Record3D
 
     struct Record3DHeader
     {
-        uint32_t frameWidth;
-        uint32_t frameHeight;
+        uint32_t rgbWidth;
+        uint32_t rgbHeight;
+        uint32_t depthWidth;
+        uint32_t depthHeight;
         uint32_t rgbSize;
         uint32_t depthSize;
+        uint32_t deviceType;
     };
 
     void Record3DStream::StreamProcessingRunloop()
     {
         std::vector<uint8_t> rawMessageBuffer;
-        rawMessageBuffer.resize( depthBufferSize_ * 2 ); // Overallocate to ensure there is always enough memory
+        rawMessageBuffer.resize( 1024 * 1024 * 4 ); // Overallocate to ensure there is always enough memory
 
         uint32_t numReceivedData = 0;
 
@@ -145,34 +141,56 @@ namespace Record3D
             // 3.1 Read the header of Record3D
             currSize = sizeof( Record3DHeader );
             memcpy((void*) &record3DHeader, rawMessageBuffer.data() + offset, currSize );
+            currentDeviceType_ = (DeviceType)record3DHeader.deviceType;
             offset += currSize;
 
             // 3.2 Read intrinsic matrix coefficients
             currSize = sizeof( IntrinsicMatrixCoeffs );
-            memcpy((void*) &intrinsicMatrixCoeffs_, rawMessageBuffer.data() + offset, currSize );
+            memcpy((void*) &rgbIntrinsicMatrixCoeffs_, rawMessageBuffer.data() + offset, currSize );
             offset += currSize;
 
             // 3.3 Read and decode the RGB JPEG frame
             currSize = record3DHeader.rgbSize;
             int loadedWidth, loadedHeight, loadedChannels;
             uint8_t* rgbPixels = stbi_load_from_memory( rawMessageBuffer.data() + offset, currSize, &loadedWidth, &loadedHeight, &loadedChannels, STBI_rgb );
-            memcpy( RGBImageBuffer_.data(), rgbPixels, loadedWidth * loadedHeight * loadedChannels * sizeof(uint8_t));
+            size_t decompressedRGBDataSize = loadedWidth * loadedHeight * loadedChannels * sizeof(uint8_t);
+            if ( RGBImageBuffer_.size() != decompressedRGBDataSize )
+            {
+                RGBImageBuffer_.resize(decompressedRGBDataSize);
+            }
+            memcpy( RGBImageBuffer_.data(), rgbPixels, decompressedRGBDataSize);
             stbi_image_free( rgbPixels );
             offset += currSize;
 
             // 3.4 Read and decompress the depth frame
             currSize = record3DHeader.depthSize;
-            DecompressDepthBuffer( rawMessageBuffer.data() + offset, currSize, depthImageBuffer_.data());
+            // Resize the decompressed depth image buffer
+            size_t decompressedDepthDataSize = record3DHeader.depthWidth * record3DHeader.depthHeight * sizeof(float);
+            if ( depthImageBuffer_.size() != decompressedDepthDataSize )
+            {
+                depthImageBuffer_.resize(decompressedDepthDataSize);
+            }
+
+            DecompressDepthBuffer( rawMessageBuffer.data() + offset, currSize, depthImageBuffer_);
 
             if ( onNewFrame )
             {
-                currentFrameWidth_ = record3DHeader.frameWidth;
-                currentFrameHeight_ = record3DHeader.frameHeight;
+                currentFrameRGBWidth_ = record3DHeader.rgbWidth;
+                currentFrameRGBHeight_ = record3DHeader.rgbHeight;
+                currentFrameDepthWidth_ = record3DHeader.depthWidth;
+                currentFrameDepthHeight_ = record3DHeader.depthHeight;
 
 #ifdef PYTHON_BINDINGS_BUILD
                 onNewFrame( );
 #else
-                onNewFrame( RGBImageBuffer_, depthImageBuffer_, record3DHeader.frameWidth, record3DHeader.frameHeight, intrinsicMatrixCoeffs_ );
+                onNewFrame( RGBImageBuffer_,
+                            depthImageBuffer_,
+                            record3DHeader.rgbWidth,
+                            record3DHeader.rgbHeight,
+                            record3DHeader.depthWidth,
+                            record3DHeader.depthHeight,
+                            currentDeviceType_,
+                            rgbIntrinsicMatrixCoeffs_ );
 #endif
             }
         }
@@ -180,18 +198,22 @@ namespace Record3D
         Disconnect();
     }
 
-    uint8_t* Record3DStream::DecompressDepthBuffer(const uint8_t* $compressedDepthBuffer, size_t $compressedDepthBufferSize, uint8_t* $destinationBuffer)
+    uint8_t* Record3DStream::DecompressDepthBuffer(const uint8_t* $compressedDepthBuffer, size_t $compressedDepthBufferSize, std::vector<uint8_t> &$destinationBuffer)
     {
-        size_t outSize = lzfse_decode_buffer( $destinationBuffer, depthBufferSize_, $compressedDepthBuffer,
-                                              $compressedDepthBufferSize, lzfseScratchBuffer_ );
-        if ( outSize != depthBufferSize_ )
+        size_t outSize = lzfse_decode_buffer( static_cast<uint8_t*>($destinationBuffer.data()),
+                                              $destinationBuffer.size(),
+                                              $compressedDepthBuffer,
+                                              $compressedDepthBufferSize,
+                                              lzfseScratchBuffer_ );
+        if ( outSize != $destinationBuffer.size() )
         {
 #if DEBUG
             fprintf( stderr, "Decompression error!\n" );
 #endif
             return nullptr;
         }
-        return $destinationBuffer;
+
+        return reinterpret_cast<uint8_t*>( $destinationBuffer.data() );
     }
 
     uint32_t Record3DStream::ReceiveWholeBuffer(int $socketHandle, uint8_t* $outputBuffer, uint32_t $numBytesToRead)

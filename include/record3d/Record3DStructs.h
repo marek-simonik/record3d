@@ -17,6 +17,12 @@ namespace Record3D
         std::string udid{ "" };
         uint32_t handle{ 0 };
     };
+
+    enum DeviceType
+    {
+        R3D_DEVICE_TYPE__FACEID = 0,
+        R3D_DEVICE_TYPE__LIDAR
+    };
 }
 
 #endif //CPP_RECORD3DSTRUCTS_H

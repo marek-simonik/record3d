@@ -34,6 +34,7 @@ PYBIND11_MODULE( record3d, m )
             .def("get_depth_frame", &Record3D::Record3DStream::GetCurrentDepthFrame, "Returns the current Depth frame.")
             .def("get_rgb_frame", &Record3D::Record3DStream::GetCurrentRGBFrame, "Return the current RGB frame.")
             .def("get_intrinsic_mat", &Record3D::Record3DStream::GetCurrentIntrinsicMatrix, "Returns the intrinsic matrix of current Depth frame.")
+            .def("get_device_type", &Record3D::Record3DStream::GetCurrentDeviceType, "Returns the type of camera (TrueDeph = 0, LiDAR = 1).")
             .def_readwrite("on_new_frame", &Record3D::Record3DStream::onNewFrame, "Method called upon receiving new frame.")
             .def_readwrite("on_stream_stopped", &Record3D::Record3DStream::onStreamStopped, "Method called when stream is interrupted.")
             ;

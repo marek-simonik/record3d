@@ -67,14 +67,14 @@ with open(path.join(this_directory, 'README.md'), mode='rb') as f:
 
 setup(
     name='record3d',
-    version='1.2.0',
+    version='1.3.0',
     license='lgpl-2.1',
     author='Marek Simonik',
     author_email='admin@record3d.app',
     url='https://github.com/marek-simonik/record3d',
     install_requires=[ 'numpy' ],
     keywords=['record3d', 'iOS', 'TrueDepth', 'streaming', 'pointcloud', 'point', 'cloud'],
-    description='Accompanying library for the Record3D iOS app (https://record3d.app/). Allows you to receive RGBD stream from iOS devices with TrueDepth camera(s).',
+    description='Accompanying library for the Record3D iOS app (https://record3d.app/). Allows you to receive RGBD stream from iOS devices with TrueDepth and/or LiDAR camera(s).',
     long_description=long_description,
     long_description_content_type='text/markdown',
     ext_modules=[CMakeExtension('record3d')],
