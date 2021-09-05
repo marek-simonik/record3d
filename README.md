@@ -1,6 +1,7 @@
 # [*Record3D – Point Cloud Animation and Streaming*](https://record3d.app/): the accompanying library 
 
 **2021/07/28 Update**: Introduced support for higher-quality RGB LiDAR streaming. **To be used with Record3D 1.6 and newer.**
+
 **2020/09/17 Update**: Introduced LiDAR support. To be used with Record3D 1.4 and newer.
 
 This project provides C++ and Python libraries for the [iOS Record3D app](https://record3d.app/) which allows you (among other features) to 
@@ -75,4 +76,9 @@ You can build the C++ demo app by running the following (press the record button
     cd build
     cmake -DCMAKE_BUILD_TYPE=Release -G "Visual Studio 15 2017 Win64" ..
     # Open the generated Visual Studio Solution (.sln) file and run the "`demo`" Project
+<<<<<<< HEAD
+
+=======
+>>>>>>> master
+
 
