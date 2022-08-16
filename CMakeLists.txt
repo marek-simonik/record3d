@@ -2,6 +2,10 @@ cmake_minimum_required(VERSION 3.13)
 project(record3d)
 set(CMAKE_CXX_STANDARD 14)
 
+if (APPLE)
+    set(CMAKE_OSX_ARCHITECTURES "x86_64;arm64" CACHE INTERNAL "" FORCE)
+endif()
+
 if(UNIX AND NOT APPLE)
     set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 endif()

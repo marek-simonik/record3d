@@ -127,7 +127,8 @@ namespace Record3D
                            uint32_t   $depthWidth,
                            uint32_t   $depthHeight,
                            DeviceType $deviceType,
-                           Record3D::IntrinsicMatrixCoeffs $K)> onNewFrame{};
+                           Record3D::IntrinsicMatrixCoeffs $K,
+                           Record3D::CameraPose $cameraPose)> onNewFrame{};
 #endif
         /**
          * This function is called when stream ends (that can happen either due to transfer error or by calling the `Disconnect()` method).
@@ -191,6 +192,16 @@ namespace Record3D
         /**
          * NOTE: This is alternative API for Python.
          *
+         * @returns the intrinsic matrix of the lastly received Depth frame.
+         */
+        CameraPose GetCurrentCameraPose()
+        {
+            return cameraPose_;
+        }
+
+        /**
+         * NOTE: This is alternative API for Python.
+         *
          * @returns the type of camera (TrueDeph = 0, LiDAR = 1).
          */
         uint32_t GetCurrentDeviceType()
@@ -216,6 +227,7 @@ namespace Record3D
         std::vector<uint8_t> depthImageBuffer_{}; /** Holds the most recent Depth buffer. */
         std::vector<uint8_t> RGBImageBuffer_{}; /** Holds the most recent RGB buffer. */
         IntrinsicMatrixCoeffs rgbIntrinsicMatrixCoeffs_{}; /** Holds the intrinsic matrix of the most recent Depth frame. */
+        CameraPose cameraPose_{}; /** Holds the world position of the most recent camera frame. */
     };
 }
 #endif //CPP_RECORD3DSTREAM_H

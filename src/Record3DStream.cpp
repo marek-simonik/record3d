@@ -149,7 +149,12 @@ namespace Record3D
             memcpy((void*) &rgbIntrinsicMatrixCoeffs_, rawMessageBuffer.data() + offset, currSize );
             offset += currSize;
 
-            // 3.3 Read and decode the RGB JPEG frame
+            // 3.3 Read the camera pose data
+            currSize = sizeof( CameraPose );
+            memcpy( (void*) &cameraPose_, rawMessageBuffer.data() + offset, currSize );
+            offset += currSize;
+
+            // 3.3 Read and decode the RGB frame
             currSize = record3DHeader.rgbSize;
             int loadedWidth, loadedHeight, loadedChannels;
             uint8_t* rgbPixels = stbi_load_from_memory( rawMessageBuffer.data() + offset, currSize, &loadedWidth, &loadedHeight, &loadedChannels, STBI_rgb );
@@ -190,7 +195,8 @@ namespace Record3D
                             record3DHeader.depthWidth,
                             record3DHeader.depthHeight,
                             currentDeviceType_,
-                            rgbIntrinsicMatrixCoeffs_ );
+                            rgbIntrinsicMatrixCoeffs_,
+                            cameraPose_ );
 #endif
             }
         }

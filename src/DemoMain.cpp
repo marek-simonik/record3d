@@ -21,26 +21,27 @@ class Record3DDemoApp
 public:
     void Run()
     {
-        Record3D::Record3DStream stream{};
+        Record3D::Record3DStream stream { };
         stream.onStreamStopped = [&]
         {
             OnStreamStopped();
         };
-        stream.onNewFrame = [&](const Record3D::BufferRGB &$rgbFrame,
-                                const Record3D::BufferDepth &$depthFrame,
-                                uint32_t $rgbWidth,
-                                uint32_t $rgbHeight,
-                                uint32_t $depthWidth,
-                                uint32_t $depthHeight,
-                                Record3D::DeviceType $deviceType,
-                                Record3D::IntrinsicMatrixCoeffs $K)
+        stream.onNewFrame = [&]( const Record3D::BufferRGB &$rgbFrame,
+                                 const Record3D::BufferDepth &$depthFrame,
+                                 uint32_t $rgbWidth,
+                                 uint32_t $rgbHeight,
+                                 uint32_t $depthWidth,
+                                 uint32_t $depthHeight,
+                                 Record3D::DeviceType $deviceType,
+                                 Record3D::IntrinsicMatrixCoeffs $K,
+                                 Record3D::CameraPose $cameraPose )
         {
-            OnNewFrame( $rgbFrame, $depthFrame, $rgbWidth, $rgbHeight, $depthWidth, $depthHeight, $deviceType, $K );
+            OnNewFrame( $rgbFrame, $depthFrame, $rgbWidth, $rgbHeight, $depthWidth, $depthHeight, $deviceType, $K, $cameraPose );
         };
 
         // Try connecting to a device.
         const auto &devs = Record3D::Record3DStream::GetConnectedDevices();
-        if ( devs.empty())
+        if ( devs.empty() )
         {
             fprintf( stderr,
                      "No iOS devices found. Ensure you have connected your iDevice via USB to this computer.\n" );
@@ -48,17 +49,17 @@ public:
         }
         else
         {
-            printf( "Found %lu iOS device(s):\n", devs.size());
-            for ( const auto &dev : devs )
+            printf( "Found %lu iOS device(s):\n", devs.size() );
+            for ( const auto &dev: devs )
             {
-                printf( "\tDevice ID: %u\n\tUDID: %s\n\n", dev.productId, dev.udid.c_str());
+                printf( "\tDevice ID: %u\n\tUDID: %s\n\n", dev.productId, dev.udid.c_str() );
             }
         }
 
-        const auto &selectedDevice = devs[ 0 ];
+        const auto &selectedDevice = devs[0];
         printf( "Trying to connect to device with ID %u.\n", selectedDevice.productId );
 
-        bool isConnected = stream.ConnectToDevice( devs[ 0 ] );
+        bool isConnected = stream.ConnectToDevice( devs[0] );
         if ( isConnected )
         {
             printf( "Connected and starting to stream. Enable USB streaming in the Record3D iOS app (https://record3d.app/) in case you don't see RGBD stream.\n" );
@@ -66,14 +67,15 @@ public:
             {
                 // Wait for the callback thread to receive new frame and unlock this thread
 #ifdef HAS_OPENCV
-                if ( imgRGB_.cols == 0 || imgRGB_.rows == 0 || imgDepth_.cols == 0 || imgDepth_.rows == 0 )
-                {
-                    continue;
-                }
-
                 cv::Mat rgb, depth;
                 {
-                    std::lock_guard<std::recursive_mutex> lock(mainThreadLock_);
+                    std::lock_guard<std::recursive_mutex> lock( mainThreadLock_ );
+
+                    if ( imgRGB_.cols == 0 || imgRGB_.rows == 0 || imgDepth_.cols == 0 || imgDepth_.rows == 0 )
+                    {
+                        continue;
+                    }
+
                     rgb = imgRGB_.clone();
                     depth = imgDepth_.clone();
                 }
@@ -107,52 +109,53 @@ private:
         fprintf( stderr, "Stream stopped!" );
     }
 
-    void OnNewFrame(const Record3D::BufferRGB &$rgbFrame,
-                    const Record3D::BufferDepth &$depthFrame,
-                    uint32_t $rgbWidth,
-                    uint32_t $rgbHeight,
-                    uint32_t $depthWidth,
-                    uint32_t $depthHeight,
-                    Record3D::DeviceType $deviceType,
-                    Record3D::IntrinsicMatrixCoeffs $K)
+    void OnNewFrame( const Record3D::BufferRGB &$rgbFrame,
+                     const Record3D::BufferDepth &$depthFrame,
+                     uint32_t $rgbWidth,
+                     uint32_t $rgbHeight,
+                     uint32_t $depthWidth,
+                     uint32_t $depthHeight,
+                     Record3D::DeviceType $deviceType,
+                     Record3D::IntrinsicMatrixCoeffs $K,
+                     Record3D::CameraPose $cameraPose )
     {
         currentDeviceType_ = (Record3D::DeviceType) $deviceType;
 
 #ifdef HAS_OPENCV
-        std::lock_guard<std::recursive_mutex> lock(mainThreadLock_);
+        std::lock_guard<std::recursive_mutex> lock( mainThreadLock_ );
         // When we switch between the TrueDepth and the LiDAR camera, the size frame size changes.
         // Recreate the RGB and Depth images with fitting size.
-        if (    imgRGB_.rows != $rgbHeight || imgRGB_.cols != $rgbWidth
+        if ( imgRGB_.rows != $rgbHeight || imgRGB_.cols != $rgbWidth
              || imgDepth_.rows != $depthHeight || imgDepth_.cols != $depthWidth )
         {
             imgRGB_.release();
             imgDepth_.release();
 
-            imgRGB_ = cv::Mat::zeros( $rgbHeight, $rgbWidth, CV_8UC3);
+            imgRGB_ = cv::Mat::zeros( $rgbHeight, $rgbWidth, CV_8UC3 );
             imgDepth_ = cv::Mat::zeros( $depthHeight, $depthWidth, CV_32F );
         }
 
         // The `BufferRGB` and `BufferDepth` may be larger than the actual payload, therefore the true frame size is computed.
         constexpr int numRGBChannels = 3;
-        memcpy( imgRGB_.data, $rgbFrame.data(), $rgbWidth * $rgbHeight * numRGBChannels * sizeof(uint8_t));
-        memcpy( imgDepth_.data, $depthFrame.data(), $depthWidth * $depthHeight * sizeof(float));
+        memcpy( imgRGB_.data, $rgbFrame.data(), $rgbWidth * $rgbHeight * numRGBChannels * sizeof( uint8_t ) );
+        memcpy( imgDepth_.data, $depthFrame.data(), $depthWidth * $depthHeight * sizeof( float ) );
 #endif
     }
 
 private:
-    std::recursive_mutex mainThreadLock_{};
-    Record3D::DeviceType currentDeviceType_{};
+    std::recursive_mutex mainThreadLock_ { };
+    Record3D::DeviceType currentDeviceType_ { };
 
 #ifdef HAS_OPENCV
-    cv::Mat imgRGB_{};
-    cv::Mat imgDepth_{};
+    cv::Mat imgRGB_ { };
+    cv::Mat imgDepth_ { };
 #endif
 };
 
 
 int main()
 {
-    Record3DDemoApp app{};
+    Record3DDemoApp app { };
     app.Run();
 }
 

@@ -11,6 +11,20 @@ namespace Record3D
         float ty;
     };
 
+    struct CameraPose
+    {
+        // Quaternion coefficients
+        float qx;
+        float qy;
+        float qz;
+        float qw;
+
+        // Position
+        float tx;
+        float ty;
+        float tz;
+    };
+
     struct DeviceInfo
     {
         uint32_t productId{ 0 };
