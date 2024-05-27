@@ -9,6 +9,7 @@
 #include "Record3DStructs.h"
 #include <stdint.h>
 #include <functional>
+#include <string.h>
 
 #ifdef PYTHON_BINDINGS_BUILD
 #include <pybind11/pybind11.h>
@@ -21,6 +22,8 @@ namespace Record3D
 {
     using BufferRGB = std::vector<uint8_t>;
     using BufferDepth = std::vector<uint8_t>;
+    using BufferConfidence = std::vector<uint8_t>;
+    using BufferMisc = std::vector<uint8_t>;
 
     class Record3DStream
     {
@@ -74,12 +77,12 @@ namespace Record3D
         /**
          * Decompresses incoming compressed depth frame into $destinationBuffer of known size.
          *
-         * @param $compressedDepthBuffer the buffer containing LZFSE-compressed depth frame.
-         * @param $compressedDepthBufferSize size of the compressed buffer.
+         * @param $compressedBuffer the buffer containing LZFSE-compressed depth frame.
+         * @param $compressedBufferSize size of the compressed buffer.
          * @param $destinationBuffer buffer into which the decompressed depth frame is going to be written.
          * @returns pointer to the decompressed buffer. In case of decompression failure, `nullptr` is returned.
          */
-        uint8_t* DecompressDepthBuffer(const uint8_t* $compressedDepthBuffer, size_t $compressedDepthBufferSize, std::vector<uint8_t> &$destinationBuffer);
+        uint8_t* DecompressBuffer(const uint8_t* $compressedBuffer, size_t $compressedBufferSize, std::vector<uint8_t> &$destinationBuffer);
 
         /**
          * Wraps the standard `recv()` function to ensure the *exact* amount of bytes (`$numBytesToRead`) is read into the $outputBuffer.
@@ -116,17 +119,29 @@ namespace Record3D
          *
          * @param $rgbFrame RGB buffer.
          * @param $depthFrame Depth buffer.
-         * @param $frameWidth width od the RGB and Depth frames.
-         * @param $frameHeight height od the RGB and Depth frames.
-         * @param $K four coefficients of the intrinsic matrix corresponding to the Depth frame.
+         * @param $confFrame Confidence buffer.
+         * @param $miscData Misc buffer (reserved).
+         * @param $rgbWidth width of the RGB frame.
+         * @param $rgbHeight height of the RGB frame.
+         * @param $depthWidth width of the Depth frame.
+         * @param $depthHeight height of the Depth frame.
+         * @param $confWidth width of Confidence frame (0 if there is no confidence frame).
+         * @param $confHeight height of Confidence frame (0 if there is no confidence frame).
+         * @param $deviceType type of the camera used for streaming.
+         * @param $K four coefficients of the intrinsic matrix corresponding to the RGB frame.
+         * @param $cameraPose camera pose in world space.
          */
         std::function<void(const Record3D::BufferRGB &$rgbFrame,
                            const Record3D::BufferDepth &$depthFrame,
+                           const Record3D::BufferConfidence &$confFrame,
+                           const Record3D::BufferMisc &$miscData,
                            uint32_t   $rgbWidth,
                            uint32_t   $rgbHeight,
                            uint32_t   $depthWidth,
                            uint32_t   $depthHeight,
-                           DeviceType $deviceType,
+                           uint32_t   $confWidth,
+                           uint32_t   $confHeight,
+                           Record3D::DeviceType $deviceType,
                            Record3D::IntrinsicMatrixCoeffs $K,
                            Record3D::CameraPose $cameraPose)> onNewFrame{};
 #endif
@@ -153,6 +168,44 @@ namespace Record3D
 
             std::memcpy(result_ptr, depthImageBuffer_.data(), bufferSize);
             result.resize(std::vector<int>{static_cast<int>(currentFrameHeight), static_cast<int>(currentFrameWidth)});
+
+            return result;
+        }
+
+        /**
+         * NOTE: This is alternative API for Python.
+         *
+         * @returns the current contents of the Confidence buffer which holds the lastly received Depth frame.
+         */
+        py::array_t<uint8_t> GetCurrentConfidenceFrame()
+        {
+            size_t currentFrameWidth = currentFrameConfidenceWidth_;
+            size_t currentFrameHeight = currentFrameConfidenceHeight_;
+
+            size_t bufferSize  = currentFrameWidth * currentFrameHeight * sizeof(uint8_t);
+            auto result        = py::array_t<uint8_t>(currentFrameWidth * currentFrameHeight);
+            auto result_buffer = result.request();
+            uint8_t *result_ptr  = (uint8_t *) result_buffer.ptr;
+
+            std::memcpy(result_ptr, confidenceImageBuffer_.data(), bufferSize);
+            result.resize(std::vector<int>{static_cast<int>(currentFrameHeight), static_cast<int>(currentFrameWidth)});
+
+            return result;
+        }
+
+        /**
+         * NOTE: This is alternative API for Python.
+         *
+         * @returns the current contents of the Misc buffer (reserved).
+         */
+        py::array_t<uint8_t> GetCurrentMiscData()
+        {
+            size_t bufferSize  = miscBuffer_.size();
+            auto result        = py::array_t<uint8_t>( bufferSize );
+            auto result_buffer = result.request();
+            uint8_t *result_ptr  = (uint8_t *) result_buffer.ptr;
+
+            std::memcpy(result_ptr, miscBuffer_.data(), bufferSize);
 
             return result;
         }
@@ -212,8 +265,13 @@ namespace Record3D
     private:
         size_t currentFrameRGBWidth_{ 0 };
         size_t currentFrameRGBHeight_{ 0 };
+
         size_t currentFrameDepthWidth_{ 0 };
         size_t currentFrameDepthHeight_{ 0 };
+
+        size_t currentFrameConfidenceWidth_{ 0 };
+        size_t currentFrameConfidenceHeight_{ 0 };
+
         DeviceType currentDeviceType_ {};
 
         uint8_t* lzfseScratchBuffer_{ nullptr }; /** Preallocated LZFSE scratch buffer. */
@@ -226,7 +284,9 @@ namespace Record3D
 
         std::vector<uint8_t> depthImageBuffer_{}; /** Holds the most recent Depth buffer. */
         std::vector<uint8_t> RGBImageBuffer_{}; /** Holds the most recent RGB buffer. */
-        IntrinsicMatrixCoeffs rgbIntrinsicMatrixCoeffs_{}; /** Holds the intrinsic matrix of the most recent Depth frame. */
+        std::vector<uint8_t> confidenceImageBuffer_{}; /** Holds the Confidence map of the most recent Depth buffer. Pixel values: Low: 0, Medium: 1, High: 2 */
+        std::vector<uint8_t> miscBuffer_{}; /** Reserved */
+        IntrinsicMatrixCoeffs rgbIntrinsicMatrixCoeffs_{}; /** Holds the intrinsic matrix of the most recent RGB frame. */
         CameraPose cameraPose_{}; /** Holds the world position of the most recent camera frame. */
     };
 }

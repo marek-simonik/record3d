@@ -1,6 +1,8 @@
 #ifndef CPP_RECORD3DSTRUCTS_H
 #define CPP_RECORD3DSTRUCTS_H
 
+#include <cstring>
+
 namespace Record3D
 {
     struct IntrinsicMatrixCoeffs

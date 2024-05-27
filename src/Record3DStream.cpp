@@ -105,16 +105,18 @@ namespace Record3D
         uint32_t rgbHeight;
         uint32_t depthWidth;
         uint32_t depthHeight;
+        uint32_t confidenceWidth;
+        uint32_t confidenceHeight;
         uint32_t rgbSize;
         uint32_t depthSize;
+        uint32_t confidenceMapSize;
+        uint32_t miscSize;
         uint32_t deviceType;
     };
 
     void Record3DStream::StreamProcessingRunloop()
     {
         std::vector<uint8_t> rawMessageBuffer;
-        rawMessageBuffer.resize( 1024 * 1024 * 4 ); // Overallocate to ensure there is always enough memory
-
         uint32_t numReceivedData = 0;
 
         while ( connectionEstablished_.load())
@@ -123,10 +125,16 @@ namespace Record3D
             PeerTalkHeader ptHeader;
             numReceivedData = ReceiveWholeBuffer( socketHandle_, (uint8_t*) &ptHeader, sizeof( ptHeader ));
             uint32_t messageBodySize = NTOHL_( ptHeader.body_size );
+
             if ( numReceivedData != sizeof( ptHeader ))
             { break; }
 
             // 2. Receive the whole body
+            if ( rawMessageBuffer.size() < messageBodySize )
+            {
+                rawMessageBuffer.resize( messageBodySize );
+            }
+
             numReceivedData = ReceiveWholeBuffer( socketHandle_, (uint8_t*) rawMessageBuffer.data(),
                                                   messageBodySize );
             if ( numReceivedData != messageBodySize )
@@ -176,24 +184,56 @@ namespace Record3D
                 depthImageBuffer_.resize(decompressedDepthDataSize);
             }
 
-            DecompressDepthBuffer( rawMessageBuffer.data() + offset, currSize, depthImageBuffer_);
+            DecompressBuffer(rawMessageBuffer.data() + offset, currSize, depthImageBuffer_);
+            offset += currSize;
+
+            // 3.5 Read and decompress the confidence frame corresponding to the depth frame
+            currSize = record3DHeader.confidenceMapSize;
+            // Resize the decompressed confidence image buffer
+            size_t decompressedConfidenceDataSize = record3DHeader.confidenceWidth * record3DHeader.confidenceHeight * sizeof(uint8_t);
+            if ( confidenceImageBuffer_.size() != decompressedConfidenceDataSize )
+            {
+                confidenceImageBuffer_.resize(decompressedConfidenceDataSize);
+            }
+
+            DecompressBuffer(rawMessageBuffer.data() + offset, currSize, confidenceImageBuffer_);
+            offset += currSize;
+
+            // 3.6 Read the misc buffer
+            if ( record3DHeader.miscSize > 0 )
+            {
+                currSize = record3DHeader.miscSize;
+
+                miscBuffer_.resize( currSize );
+                memcpy(miscBuffer_.data(), rawMessageBuffer.data() + offset, currSize );
+
+                offset += currSize;
+            }
 
             if ( onNewFrame )
             {
                 currentFrameRGBWidth_ = record3DHeader.rgbWidth;
                 currentFrameRGBHeight_ = record3DHeader.rgbHeight;
+
                 currentFrameDepthWidth_ = record3DHeader.depthWidth;
                 currentFrameDepthHeight_ = record3DHeader.depthHeight;
+
+                currentFrameConfidenceWidth_ = record3DHeader.confidenceWidth;
+                currentFrameConfidenceHeight_ = record3DHeader.confidenceHeight;
 
 #ifdef PYTHON_BINDINGS_BUILD
                 onNewFrame( );
 #else
                 onNewFrame( RGBImageBuffer_,
                             depthImageBuffer_,
+                            confidenceImageBuffer_,
+                            miscBuffer_,
                             record3DHeader.rgbWidth,
                             record3DHeader.rgbHeight,
                             record3DHeader.depthWidth,
                             record3DHeader.depthHeight,
+                            record3DHeader.confidenceWidth,
+                            record3DHeader.confidenceHeight,
                             currentDeviceType_,
                             rgbIntrinsicMatrixCoeffs_,
                             cameraPose_ );
@@ -204,13 +244,13 @@ namespace Record3D
         Disconnect();
     }
 
-    uint8_t* Record3DStream::DecompressDepthBuffer(const uint8_t* $compressedDepthBuffer, size_t $compressedDepthBufferSize, std::vector<uint8_t> &$destinationBuffer)
+    uint8_t* Record3DStream::DecompressBuffer(const uint8_t* $compressedBuffer, size_t $compressedBufferSize, std::vector<uint8_t> &$destinationBuffer)
     {
-        size_t outSize = lzfse_decode_buffer( static_cast<uint8_t*>($destinationBuffer.data()),
-                                              $destinationBuffer.size(),
-                                              $compressedDepthBuffer,
-                                              $compressedDepthBufferSize,
-                                              lzfseScratchBuffer_ );
+        size_t outSize = lzfse_decode_buffer(static_cast<uint8_t*>($destinationBuffer.data()),
+                                             $destinationBuffer.size(),
+                                             $compressedBuffer,
+                                             $compressedBufferSize,
+                                             lzfseScratchBuffer_ );
         if ( outSize != $destinationBuffer.size() )
         {
 #if DEBUG

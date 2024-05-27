@@ -49,6 +49,7 @@ class DemoApp:
             # Copy the newly arrived RGBD frame
             depth = self.session.get_depth_frame()
             rgb = self.session.get_rgb_frame()
+            confidence = self.session.get_confidence_frame()
             intrinsic_mat = self.get_intrinsic_mat_from_coeffs(self.session.get_intrinsic_mat())
             camera_pose = self.session.get_camera_pose()  # Quaternion + world position (accessible via camera_pose.[qx|qy|qz|qw|tx|ty|tz])
 
@@ -66,6 +67,10 @@ class DemoApp:
             # Show the RGBD Stream
             cv2.imshow('RGB', rgb)
             cv2.imshow('Depth', depth)
+
+            if confidence.shape[0] > 0 and confidence.shape[1] > 0:
+                cv2.imshow('Confidence', confidence * 100)
+
             cv2.waitKey(1)
 
             self.event.clear()

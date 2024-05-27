@@ -1,5 +1,7 @@
 # [*Record3D – Point Cloud Animation and Streaming*](https://record3d.app/): the accompanying library 
 
+**2024/05/27 Update**: Added confidence map streaming (introduced breaking changes). **To be used with Record3D 1.10 and newer.**
+
 **2022/08/16 Update**: Added camera position streaming (introduced breaking changes). **To be used with Record3D 1.7.2 and newer.**
 
 **2021/07/28 Update**: Introduced support for higher-quality RGB LiDAR streaming. **To be used with Record3D 1.6 and newer.**

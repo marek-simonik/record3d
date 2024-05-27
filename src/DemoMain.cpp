@@ -2,6 +2,7 @@
 #include <vector>
 #include <record3d/Record3DStream.h>
 #include <mutex>
+#include <cstring>
 
 #ifdef HAS_OPENCV
 #include <opencv2/opencv.hpp>
@@ -28,15 +29,19 @@ public:
         };
         stream.onNewFrame = [&]( const Record3D::BufferRGB &$rgbFrame,
                                  const Record3D::BufferDepth &$depthFrame,
-                                 uint32_t $rgbWidth,
-                                 uint32_t $rgbHeight,
-                                 uint32_t $depthWidth,
-                                 uint32_t $depthHeight,
+                                 const Record3D::BufferConfidence &$confFrame,
+                                 const Record3D::BufferMisc &$miscData,
+                                 uint32_t   $rgbWidth,
+                                 uint32_t   $rgbHeight,
+                                 uint32_t   $depthWidth,
+                                 uint32_t   $depthHeight,
+                                 uint32_t   $confWidth,
+                                 uint32_t   $confHeight,
                                  Record3D::DeviceType $deviceType,
                                  Record3D::IntrinsicMatrixCoeffs $K,
                                  Record3D::CameraPose $cameraPose )
         {
-            OnNewFrame( $rgbFrame, $depthFrame, $rgbWidth, $rgbHeight, $depthWidth, $depthHeight, $deviceType, $K, $cameraPose );
+            OnNewFrame( $rgbFrame, $depthFrame, $confFrame, $miscData, $rgbWidth, $rgbHeight, $depthWidth, $depthHeight, $confWidth, $confHeight, $deviceType, $K, $cameraPose );
         };
 
         // Try connecting to a device.
@@ -67,13 +72,18 @@ public:
             {
                 // Wait for the callback thread to receive new frame and unlock this thread
 #ifdef HAS_OPENCV
-                cv::Mat rgb, depth;
+                cv::Mat rgb, depth, confidence;
                 {
                     std::lock_guard<std::recursive_mutex> lock( mainThreadLock_ );
 
                     if ( imgRGB_.cols == 0 || imgRGB_.rows == 0 || imgDepth_.cols == 0 || imgDepth_.rows == 0 )
                     {
                         continue;
+                    }
+
+                    if ( imgConfidence_.cols > 0 && imgConfidence_.rows > 0 )
+                    {
+                        confidence = imgConfidence_.clone();
                     }
 
                     rgb = imgRGB_.clone();
@@ -87,6 +97,11 @@ public:
                 {
                     cv::flip( rgb, rgb, 1 );
                     cv::flip( depth, depth, 1 );
+                }
+
+                if ( imgConfidence_.cols > 0 && imgConfidence_.rows > 0 )
+                {
+                    cv::imshow( "Confidence", confidence * 100 );
                 }
 
                 // Show images
@@ -111,10 +126,14 @@ private:
 
     void OnNewFrame( const Record3D::BufferRGB &$rgbFrame,
                      const Record3D::BufferDepth &$depthFrame,
-                     uint32_t $rgbWidth,
-                     uint32_t $rgbHeight,
-                     uint32_t $depthWidth,
-                     uint32_t $depthHeight,
+                     const Record3D::BufferConfidence &$confFrame,
+                     const Record3D::BufferMisc &$miscData,
+                     uint32_t   $rgbWidth,
+                     uint32_t   $rgbHeight,
+                     uint32_t   $depthWidth,
+                     uint32_t   $depthHeight,
+                     uint32_t   $confWidth,
+                     uint32_t   $confHeight,
                      Record3D::DeviceType $deviceType,
                      Record3D::IntrinsicMatrixCoeffs $K,
                      Record3D::CameraPose $cameraPose )
@@ -135,10 +154,27 @@ private:
             imgDepth_ = cv::Mat::zeros( $depthHeight, $depthWidth, CV_32F );
         }
 
+        bool isConfidenceMapIncluded = $confWidth > 0 && $confHeight > 0;
+
+        if ( imgConfidence_.rows != $confWidth || imgConfidence_.cols != $confHeight )
+        {
+            imgConfidence_.release();
+
+            if ( isConfidenceMapIncluded )
+            {
+                imgConfidence_ = cv::Mat::zeros( $confHeight, $confWidth, CV_8U );
+            }
+        }
+
         // The `BufferRGB` and `BufferDepth` may be larger than the actual payload, therefore the true frame size is computed.
         constexpr int numRGBChannels = 3;
         memcpy( imgRGB_.data, $rgbFrame.data(), $rgbWidth * $rgbHeight * numRGBChannels * sizeof( uint8_t ) );
         memcpy( imgDepth_.data, $depthFrame.data(), $depthWidth * $depthHeight * sizeof( float ) );
+
+        if ( isConfidenceMapIncluded )
+        {
+            memcpy( imgConfidence_.data, $confFrame.data(), $confWidth * $confHeight * sizeof(uint8_t) );
+        }
 #endif
     }
 
@@ -149,6 +185,7 @@ private:
 #ifdef HAS_OPENCV
     cv::Mat imgRGB_ { };
     cv::Mat imgDepth_ { };
+    cv::Mat imgConfidence_ { };
 #endif
 };
 
