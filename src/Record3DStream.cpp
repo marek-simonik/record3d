@@ -20,6 +20,8 @@ namespace Record3D
 
     Record3DStream::~Record3DStream()
     {
+        runloopThread_.join();
+        
         delete[] lzfseScratchBuffer_;
     }
 
@@ -70,7 +72,7 @@ namespace Record3D
                                       {
                                           StreamProcessingRunloop();
                                       } );
-        runloopThread_.detach();
+ 
         return true;
     }
 
@@ -240,8 +242,6 @@ namespace Record3D
 #endif
             }
         }
-
-        Disconnect();
     }
 
     uint8_t* Record3DStream::DecompressBuffer(const uint8_t* $compressedBuffer, size_t $compressedBufferSize, std::vector<uint8_t> &$destinationBuffer)
