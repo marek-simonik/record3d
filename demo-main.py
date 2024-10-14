@@ -8,8 +8,8 @@ class DemoApp:
     def __init__(self):
         self.event = Event()
         self.session = None
-        self.DEVICE_TYPE__TRUEDEPTH = 0
-        self.DEVICE_TYPE__LIDAR = 1
+        self.DEVICE_TYPE__TRUEDEPTH = 1
+        self.DEVICE_TYPE__LIDAR = 0
 
     def on_new_frame(self):
         """
@@ -74,7 +74,6 @@ class DemoApp:
             cv2.waitKey(1)
 
             self.event.clear()
-
 
 if __name__ == '__main__':
     app = DemoApp()
