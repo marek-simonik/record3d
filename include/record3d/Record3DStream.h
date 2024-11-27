@@ -10,6 +10,7 @@
 #include <stdint.h>
 #include <functional>
 #include <string.h>
+#include <iostream>
 
 #ifdef PYTHON_BINDINGS_BUILD
 #include <pybind11/pybind11.h>
@@ -162,12 +163,11 @@ namespace Record3D
             size_t currentFrameHeight = currentFrameDepthHeight_;
 
             size_t bufferSize  = currentFrameWidth * currentFrameHeight * sizeof(float);
-            auto result        = py::array_t<float>(currentFrameWidth * currentFrameHeight);
+            auto result        = py::array_t<float>({static_cast<int>(currentFrameHeight), static_cast<int>(currentFrameWidth)});
             auto result_buffer = result.request();
             float *result_ptr  = (float *) result_buffer.ptr;
 
             std::memcpy(result_ptr, depthImageBuffer_.data(), bufferSize);
-            result.resize(std::vector<int>{static_cast<int>(currentFrameHeight), static_cast<int>(currentFrameWidth)});
 
             return result;
         }
@@ -183,12 +183,11 @@ namespace Record3D
             size_t currentFrameHeight = currentFrameConfidenceHeight_;
 
             size_t bufferSize  = currentFrameWidth * currentFrameHeight * sizeof(uint8_t);
-            auto result        = py::array_t<uint8_t>(currentFrameWidth * currentFrameHeight);
+            auto result        = py::array_t<uint8_t>({static_cast<int>(currentFrameHeight), static_cast<int>(currentFrameWidth)});
             auto result_buffer = result.request();
             uint8_t *result_ptr  = (uint8_t *) result_buffer.ptr;
 
             std::memcpy(result_ptr, confidenceImageBuffer_.data(), bufferSize);
-            result.resize(std::vector<int>{static_cast<int>(currentFrameHeight), static_cast<int>(currentFrameWidth)});
 
             return result;
         }
@@ -222,12 +221,11 @@ namespace Record3D
 
             constexpr int numChannels = 3;
             size_t bufferSize  = currentFrameWidth * currentFrameHeight * numChannels * sizeof(uint8_t);
-            auto result        = py::array_t<uint8_t>(bufferSize);
+            auto result        = py::array_t<uint8_t>({static_cast<int>(currentFrameHeight), static_cast<int>(currentFrameWidth), numChannels});
             auto result_buffer = result.request();
             uint8_t *result_ptr  = (uint8_t *) result_buffer.ptr;
 
             std::memcpy(result_ptr, RGBImageBuffer_.data(), bufferSize);
-            result.resize(std::vector<int>{static_cast<int>(currentFrameHeight), static_cast<int>(currentFrameWidth), numChannels});
 
             return result;
         }
