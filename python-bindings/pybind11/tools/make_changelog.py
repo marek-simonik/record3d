@@ -1,4 +1,10 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run
+
+# /// script
+# dependencies = ["ghapi", "rich"]
+# ///
+
+from __future__ import annotations
 
 import re
 
@@ -29,23 +35,51 @@ issues_pages = ghapi.page.paged(
 )
 issues = (issue for page in issues_pages for issue in page)
 missing = []
+cats_descr = {
+    "feat": "New Features",
+    "feat(types)": "",
+    "feat(cmake)": "",
+    "fix": "Bug fixes",
+    "fix(types)": "",
+    "fix(cmake)": "",
+    "docs": "Documentation",
+    "tests": "Tests",
+    "ci": "CI",
+    "chore": "Other",
+    "unknown": "Uncategorised",
+}
+cats: dict[str, list[str]] = {c: [] for c in cats_descr}
 
 for issue in issues:
-    changelog = ENTRY.findall(issue.body)
-    if changelog:
+    changelog = ENTRY.findall(issue.body or "")
+    if not changelog or not changelog[0]:
+        missing.append(issue)
+    else:
         (msg,) = changelog
+        if msg.startswith("- "):
+            msg = msg[2:]
         if not msg.startswith("* "):
             msg = "* " + msg
         if not msg.endswith("."):
             msg += "."
 
         msg += f"\n  `#{issue.number} <{issue.html_url}>`_"
+        for cat, cat_list in cats.items():
+            if issue.title.lower().startswith(f"{cat}:"):
+                cat_list.append(msg)
+                break
+        else:
+            cats["unknown"].append(msg)
 
-        print(Syntax(msg, "rst", theme="ansi_light", word_wrap=True))
+for cat, msgs in cats.items():
+    if msgs:
+        desc = cats_descr[cat]
+        print(f"[bold]{desc}:" if desc else f".. {cat}")
         print()
-
-    else:
-        missing.append(issue)
+        for msg in msgs:
+            print(Syntax(msg, "rst", theme="ansi_light", word_wrap=True))
+            print()
+        print()
 
 if missing:
     print()

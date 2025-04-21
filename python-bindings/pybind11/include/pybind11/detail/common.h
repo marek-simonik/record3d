@@ -9,27 +9,20 @@
 
 #pragma once
 
-#define PYBIND11_VERSION_MAJOR 2
-#define PYBIND11_VERSION_MINOR 10
-#define PYBIND11_VERSION_PATCH 1
+#include <pybind11/conduit/wrap_include_python_h.h>
+#if PY_VERSION_HEX < 0x03080000
+#    error "PYTHON < 3.8 IS UNSUPPORTED. pybind11 v2.13 was the last to support Python 3.7."
+#endif
+
+#define PYBIND11_VERSION_MAJOR 3
+#define PYBIND11_VERSION_MINOR 0
+#define PYBIND11_VERSION_PATCH 0.dev1
 
 // Similar to Python's convention: https://docs.python.org/3/c-api/apiabiversion.html
 // Additional convention: 0xD = dev
-#define PYBIND11_VERSION_HEX 0x020A0100
+#define PYBIND11_VERSION_HEX 0x030000D1
 
-#define PYBIND11_NAMESPACE_BEGIN(name) namespace name {
-#define PYBIND11_NAMESPACE_END(name) }
-
-// Robust support for some features and loading modules compiled against different pybind versions
-// requires forcing hidden visibility on pybind code, so we enforce this by setting the attribute
-// on the main `pybind11` namespace.
-#if !defined(PYBIND11_NAMESPACE)
-#    ifdef __GNUG__
-#        define PYBIND11_NAMESPACE pybind11 __attribute__((visibility("hidden")))
-#    else
-#        define PYBIND11_NAMESPACE pybind11
-#    endif
-#endif
+#include "pybind11_namespace_macros.h"
 
 #if !(defined(_MSC_VER) && __cplusplus == 199711L)
 #    if __cplusplus >= 201402L
@@ -55,6 +48,22 @@
 #            endif
 #        endif
 #    endif
+#endif
+
+#if defined(__cpp_lib_launder) && !(defined(_MSC_VER) && (_MSC_VER < 1914))
+#    define PYBIND11_STD_LAUNDER std::launder
+#    define PYBIND11_HAS_STD_LAUNDER 1
+#else
+#    define PYBIND11_STD_LAUNDER
+#    define PYBIND11_HAS_STD_LAUNDER 0
+#endif
+
+#if defined(PYBIND11_CPP20)
+#    define PYBIND11_CONSTINIT constinit
+#    define PYBIND11_DTOR_CONSTEXPR constexpr
+#else
+#    define PYBIND11_CONSTINIT
+#    define PYBIND11_DTOR_CONSTEXPR
 #endif
 
 // Compiler version assertions
@@ -92,17 +101,6 @@
 #        define PYBIND11_EXPORT __declspec(dllexport)
 #    else
 #        define PYBIND11_EXPORT __attribute__((visibility("default")))
-#    endif
-#endif
-
-#if !defined(PYBIND11_EXPORT_EXCEPTION)
-#    ifdef __MINGW32__
-// workaround for:
-// error: 'dllexport' implies default visibility, but xxx has already been declared with a
-// different visibility
-#        define PYBIND11_EXPORT_EXCEPTION
-#    else
-#        define PYBIND11_EXPORT_EXCEPTION PYBIND11_EXPORT
 #    endif
 #endif
 
@@ -146,31 +144,6 @@
 #    define PYBIND11_MAYBE_UNUSED __attribute__((__unused__))
 #endif
 
-/* Don't let Python.h #define (v)snprintf as macro because they are implemented
-   properly in Visual Studio since 2015. */
-#if defined(_MSC_VER)
-#    define HAVE_SNPRINTF 1
-#endif
-
-/// Include Python header, disable linking to pythonX_d.lib on Windows in debug mode
-#if defined(_MSC_VER)
-#    pragma warning(push)
-// C4505: 'PySlice_GetIndicesEx': unreferenced local function has been removed (PyPy only)
-#    pragma warning(disable : 4505)
-#    if defined(_DEBUG) && !defined(Py_DEBUG)
-// Workaround for a VS 2022 issue.
-// NOTE: This workaround knowingly violates the Python.h include order requirement:
-// https://docs.python.org/3/c-api/intro.html#include-files
-// See https://github.com/pybind/pybind11/pull/3497 for full context.
-#        include <yvals.h>
-#        if _MSVC_STL_VERSION >= 143
-#            include <crtdefs.h>
-#        endif
-#        define PYBIND11_DEBUG_MARKER
-#        undef _DEBUG
-#    endif
-#endif
-
 // https://en.cppreference.com/w/c/chrono/localtime
 #if defined(__STDC_LIB_EXT1__) && !defined(__STDC_WANT_LIB_EXT1__)
 #    define __STDC_WANT_LIB_EXT1__
@@ -205,41 +178,8 @@
 #    endif
 #endif
 
-#include <Python.h>
-// Reminder: WITH_THREAD is always defined if PY_VERSION_HEX >= 0x03070000
-#if PY_VERSION_HEX < 0x03060000
-#    error "PYTHON < 3.6 IS UNSUPPORTED. pybind11 v2.9 was the last to support Python 2 and 3.5."
-#endif
-#include <frameobject.h>
-#include <pythread.h>
-
-/* Python #defines overrides on all sorts of core functions, which
-   tends to weak havok in C++ codebases that expect these to work
-   like regular functions (potentially with several overloads) */
-#if defined(isalnum)
-#    undef isalnum
-#    undef isalpha
-#    undef islower
-#    undef isspace
-#    undef isupper
-#    undef tolower
-#    undef toupper
-#endif
-
-#if defined(copysign)
-#    undef copysign
-#endif
-
-#if defined(PYPY_VERSION) && !defined(PYBIND11_SIMPLE_GIL_MANAGEMENT)
+#if (defined(PYPY_VERSION) || defined(GRAALVM_PYTHON)) && !defined(PYBIND11_SIMPLE_GIL_MANAGEMENT)
 #    define PYBIND11_SIMPLE_GIL_MANAGEMENT
-#endif
-
-#if defined(_MSC_VER)
-#    if defined(PYBIND11_DEBUG_MARKER)
-#        define _DEBUG
-#        undef PYBIND11_DEBUG_MARKER
-#    endif
-#    pragma warning(pop)
 #endif
 
 #include <cstddef>
@@ -260,9 +200,26 @@
 #    endif
 #endif
 
+// For libc++, the exceptions should be exported,
+// otherwise, the exception translation would be incorrect.
+// IMPORTANT: This code block must stay BELOW the #include <exception> above (see PR #5390).
+#if !defined(PYBIND11_EXPORT_EXCEPTION)
+#    if defined(_LIBCPP_EXCEPTION)
+#        define PYBIND11_EXPORT_EXCEPTION PYBIND11_EXPORT
+#    else
+#        define PYBIND11_EXPORT_EXCEPTION
+#    endif
+#endif
+
 // Must be after including <version> or one of the other headers specified by the standard
 #if defined(__cpp_lib_char8_t) && __cpp_lib_char8_t >= 201811L
 #    define PYBIND11_HAS_U8STRING
+#endif
+
+// See description of PR #4246:
+#if !defined(PYBIND11_NO_ASSERT_GIL_HELD_INCREF_DECREF) && !defined(NDEBUG)                       \
+    && !defined(PYPY_VERSION) && !defined(PYBIND11_ASSERT_GIL_HELD_INCREF_DECREF)
+#    define PYBIND11_ASSERT_GIL_HELD_INCREF_DECREF
 #endif
 
 // #define PYBIND11_STR_LEGACY_PERMISSIVE
@@ -312,6 +269,20 @@
 #define PYBIND11_CONCAT(first, second) first##second
 #define PYBIND11_ENSURE_INTERNALS_READY pybind11::detail::get_internals();
 
+#if !defined(GRAALVM_PYTHON)
+#    define PYBIND11_PYCFUNCTION_GET_DOC(func) ((func)->m_ml->ml_doc)
+#    define PYBIND11_PYCFUNCTION_SET_DOC(func, doc)                                               \
+        do {                                                                                      \
+            (func)->m_ml->ml_doc = (doc);                                                         \
+        } while (0)
+#else
+#    define PYBIND11_PYCFUNCTION_GET_DOC(func) (GraalPyCFunction_GetDoc((PyObject *) (func)))
+#    define PYBIND11_PYCFUNCTION_SET_DOC(func, doc)                                               \
+        do {                                                                                      \
+            GraalPyCFunction_SetDoc((PyObject *) (func), (doc));                                  \
+        } while (0)
+#endif
+
 #define PYBIND11_CHECK_PYTHON_VERSION                                                             \
     {                                                                                             \
         const char *compiled_ver                                                                  \
@@ -332,11 +303,9 @@
 #define PYBIND11_CATCH_INIT_EXCEPTIONS                                                            \
     catch (pybind11::error_already_set & e) {                                                     \
         pybind11::raise_from(e, PyExc_ImportError, "initialization failed");                      \
-        return nullptr;                                                                           \
     }                                                                                             \
     catch (const std::exception &e) {                                                             \
-        PyErr_SetString(PyExc_ImportError, e.what());                                             \
-        return nullptr;                                                                           \
+        ::pybind11::set_error(PyExc_ImportError, e.what());                                       \
     }
 
 /** \rst
@@ -364,12 +333,13 @@
             return pybind11_init();                                                               \
         }                                                                                         \
         PYBIND11_CATCH_INIT_EXCEPTIONS                                                            \
+        return nullptr;                                                                           \
     }                                                                                             \
     PyObject *pybind11_init()
 
 /** \rst
     This macro creates the entry point that will be invoked when the Python interpreter
-    imports an extension module. The module name is given as the fist argument and it
+    imports an extension module. The module name is given as the first argument and it
     should not be in quotes. The second macro argument defines a variable of type
     `py::module_` which can be used to initialize the module.
 
@@ -387,24 +357,56 @@
                 return "Hello, World!";
             });
         }
+
+    The third macro argument is optional (available since 2.13.0), and can be used to
+    mark the extension module as safe to run without the GIL under a free-threaded CPython
+    interpreter. Passing this argument has no effect on other interpreters.
+
+    .. code-block:: cpp
+
+        PYBIND11_MODULE(example, m, py::mod_gil_not_used()) {
+            m.doc() = "pybind11 example module safe to run without the GIL";
+
+            // Add bindings here
+            m.def("foo", []() {
+                return "Hello, Free-threaded World!";
+            });
+        }
+
 \endrst */
-#define PYBIND11_MODULE(name, variable)                                                           \
-    static ::pybind11::module_::module_def PYBIND11_CONCAT(pybind11_module_def_, name)            \
-        PYBIND11_MAYBE_UNUSED;                                                                    \
-    PYBIND11_MAYBE_UNUSED                                                                         \
+PYBIND11_WARNING_PUSH
+PYBIND11_WARNING_DISABLE_CLANG("-Wgnu-zero-variadic-macro-arguments")
+#define PYBIND11_MODULE(name, variable, ...)                                                      \
+    static ::pybind11::module_::module_def PYBIND11_CONCAT(pybind11_module_def_, name);           \
+    static ::pybind11::module_::slots_array PYBIND11_CONCAT(pybind11_module_slots_, name);        \
+    static int PYBIND11_CONCAT(pybind11_exec_, name)(PyObject *);                                 \
     static void PYBIND11_CONCAT(pybind11_init_, name)(::pybind11::module_ &);                     \
     PYBIND11_PLUGIN_IMPL(name) {                                                                  \
         PYBIND11_CHECK_PYTHON_VERSION                                                             \
         PYBIND11_ENSURE_INTERNALS_READY                                                           \
-        auto m = ::pybind11::module_::create_extension_module(                                    \
-            PYBIND11_TOSTRING(name), nullptr, &PYBIND11_CONCAT(pybind11_module_def_, name));      \
+        auto &slots = PYBIND11_CONCAT(pybind11_module_slots_, name);                              \
+        slots[0]                                                                                  \
+            = {Py_mod_exec, reinterpret_cast<void *>(&PYBIND11_CONCAT(pybind11_exec_, name))};    \
+        slots[1] = {0, nullptr};                                                                  \
+        auto m = ::pybind11::module_::initialize_multiphase_module_def(                           \
+            PYBIND11_TOSTRING(name),                                                              \
+            nullptr,                                                                              \
+            &PYBIND11_CONCAT(pybind11_module_def_, name),                                         \
+            slots,                                                                                \
+            ##__VA_ARGS__);                                                                       \
+        return m.ptr();                                                                           \
+    }                                                                                             \
+    int PYBIND11_CONCAT(pybind11_exec_, name)(PyObject * pm) {                                    \
         try {                                                                                     \
+            auto m = pybind11::reinterpret_borrow<::pybind11::module_>(pm);                       \
             PYBIND11_CONCAT(pybind11_init_, name)(m);                                             \
-            return m.ptr();                                                                       \
+            return 0;                                                                             \
         }                                                                                         \
         PYBIND11_CATCH_INIT_EXCEPTIONS                                                            \
+        return -1;                                                                                \
     }                                                                                             \
     void PYBIND11_CONCAT(pybind11_init_, name)(::pybind11::module_ & (variable))
+PYBIND11_WARNING_POP
 
 PYBIND11_NAMESPACE_BEGIN(PYBIND11_NAMESPACE)
 
@@ -460,7 +462,7 @@ enum class return_value_policy : uint8_t {
         object without taking ownership similar to the above
         return_value_policy::reference policy. In contrast to that policy, the
         function or property's implicit this argument (called the parent) is
-        considered to be the the owner of the return value (the child).
+        considered to be the owner of the return value (the child).
         pybind11 then couples the lifetime of the parent to the child via a
         reference relationship that ensures that the parent cannot be garbage
         collected while Python is still using the child. More advanced
@@ -543,6 +545,8 @@ struct instance {
     bool simple_instance_registered : 1;
     /// If true, get_internals().patients has an entry for this object
     bool has_patients : 1;
+    /// If true, this Python object needs to be kept alive for the lifetime of the C++ value.
+    bool is_alias : 1;
 
     /// Initializes all of the above type/values/holders data (but not the instance values
     /// themselves)
@@ -564,6 +568,14 @@ struct instance {
 
 static_assert(std::is_standard_layout<instance>::value,
               "Internal error: `pybind11::detail::instance` is not standard layout!");
+
+// Some older compilers (e.g. gcc 9.4.0) require
+//     static_assert(always_false<T>::value, "...");
+// instead of
+//     static_assert(false, "...");
+// to trigger the static_assert() in a template only if it is actually instantiated.
+template <typename>
+struct always_false : std::false_type {};
 
 /// from __cpp_future__ import (convenient aliases from C++14/17)
 #if defined(PYBIND11_CPP14)
@@ -593,6 +605,10 @@ struct remove_cvref {
 template <class T>
 using remove_cvref_t = typename remove_cvref<T>::type;
 #endif
+
+/// Example usage: is_same_ignoring_cvref<T, PyObject *>::value
+template <typename T, typename U>
+using is_same_ignoring_cvref = std::is_same<detail::remove_cvref_t<T>, U>;
 
 /// Index sequences
 #if defined(PYBIND11_CPP14)
@@ -687,7 +703,16 @@ template <typename C, typename R, typename... A>
 struct remove_class<R (C::*)(A...) const> {
     using type = R(A...);
 };
-
+#ifdef __cpp_noexcept_function_type
+template <typename C, typename R, typename... A>
+struct remove_class<R (C::*)(A...) noexcept> {
+    using type = R(A...);
+};
+template <typename C, typename R, typename... A>
+struct remove_class<R (C::*)(A...) const noexcept> {
+    using type = R(A...);
+};
+#endif
 /// Helper template to strip away type modifiers
 template <typename T>
 struct intrinsic_type {
@@ -836,8 +861,7 @@ using is_template_base_of
     = decltype(is_template_base_of_impl<Base>::check((intrinsic_t<T> *) nullptr));
 #else
 struct is_template_base_of
-    : decltype(is_template_base_of_impl<Base>::check((intrinsic_t<T> *) nullptr)) {
-};
+    : decltype(is_template_base_of_impl<Base>::check((intrinsic_t<T> *) nullptr)){};
 #endif
 
 /// Check if T is an instantiation of the template `Class`. For example:
@@ -904,12 +928,6 @@ using expand_side_effects = bool[];
 
 PYBIND11_NAMESPACE_END(detail)
 
-#if defined(_MSC_VER)
-#    pragma warning(push)
-#    pragma warning(disable : 4275)
-//     warning C4275: An exported class was derived from a class that wasn't exported.
-//     Can be ignored when derived from a STL class.
-#endif
 /// C++ bindings of builtin Python exceptions
 class PYBIND11_EXPORT_EXCEPTION builtin_exception : public std::runtime_error {
 public:
@@ -917,9 +935,6 @@ public:
     /// Set the error using the Python C API
     virtual void set_error() const = 0;
 };
-#if defined(_MSC_VER)
-#    pragma warning(pop)
-#endif
 
 #define PYBIND11_RUNTIME_EXCEPTION(name, type)                                                    \
     class PYBIND11_EXPORT_EXCEPTION name : public builtin_exception {                             \
@@ -953,6 +968,15 @@ PYBIND11_RUNTIME_EXCEPTION(reference_cast_error, PyExc_RuntimeError) /// Used in
 
 template <typename T, typename SFINAE = void>
 struct format_descriptor {};
+
+template <typename T>
+struct format_descriptor<
+    T,
+    detail::enable_if_t<detail::is_same_ignoring_cvref<T, PyObject *>::value>> {
+    static constexpr const char c = 'O';
+    static constexpr const char value[2] = {c, '\0'};
+    static std::string format() { return std::string(1, c); }
+};
 
 PYBIND11_NAMESPACE_BEGIN(detail)
 // Returns the index of the given type in the type char array below, and in the list in numpy.h
@@ -1148,17 +1172,6 @@ constexpr
 #    define PYBIND11_WORKAROUND_INCORRECT_GCC_UNUSED_BUT_SET_PARAMETER(...)
 #endif
 
-#if defined(_MSC_VER) // All versions (as of July 2021).
-
-// warning C4127: Conditional expression is constant
-constexpr inline bool silence_msvc_c4127(bool cond) { return cond; }
-
-#    define PYBIND11_SILENCE_MSVC_C4127(...) ::pybind11::detail::silence_msvc_c4127(__VA_ARGS__)
-
-#else
-#    define PYBIND11_SILENCE_MSVC_C4127(...) __VA_ARGS__
-#endif
-
 #if defined(__clang__)                                                                            \
     && (defined(__apple_build_version__) /* AppleClang 13.0.0.13000029 was the only data point    \
                                             available. */                                         \
@@ -1178,10 +1191,16 @@ constexpr inline bool silence_msvc_c4127(bool cond) { return cond; }
 #endif
 
 // Pybind offers detailed error messages by default for all builts that are debug (through the
-// negation of ndebug). This can also be manually enabled by users, for any builds, through
-// defining PYBIND11_DETAILED_ERROR_MESSAGES.
+// negation of NDEBUG). This can also be manually enabled by users, for any builds, through
+// defining PYBIND11_DETAILED_ERROR_MESSAGES. This information is primarily useful for those
+// who are writing (as opposed to merely using) libraries that use pybind11.
 #if !defined(PYBIND11_DETAILED_ERROR_MESSAGES) && !defined(NDEBUG)
 #    define PYBIND11_DETAILED_ERROR_MESSAGES
+#endif
+
+// CPython 3.11+ provides Py_TPFLAGS_MANAGED_DICT, but PyPy3.11 does not, see PR #5508.
+#if PY_VERSION_HEX < 0x030B0000 || defined(PYPY_VERSION)
+#    define PYBIND11_BACKWARD_COMPATIBILITY_TP_DICTOFFSET
 #endif
 
 PYBIND11_NAMESPACE_END(detail)
