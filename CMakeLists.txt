@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.13)
 project(record3d)
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17) # Changed from 14 to 17 for libdatachannel requirements
 
 if (APPLE)
     set(CMAKE_OSX_ARCHITECTURES "x86_64;arm64" CACHE INTERNAL "" FORCE)
@@ -35,14 +35,19 @@ if (OpenCV_FOUND)
     add_compile_definitions(HAS_OPENCV)
 endif ()
 
+# Add libdatachannel
+find_package(LibDataChannel REQUIRED)
+# Using INTERFACE_INCLUDE_DIRECTORIES from imported target LibDataChannel::LibDataChannel
+# include_directories(${LibDataChannel_INCLUDE_DIRS})
+
 
 ########################################################################
 ### Create C++ library
 ########################################################################
 include(GNUInstallDirs)
-add_library(record3d_cpp STATIC src/Record3DStream.cpp src/JPEGDecoder.cpp)
+add_library(record3d_cpp STATIC src/Record3DStream.cpp src/JPEGDecoder.cpp src/WebRTCSignaling.cpp)
 include_directories(include)
-target_link_libraries(record3d_cpp PUBLIC lzfse usbmuxd)
+target_link_libraries(record3d_cpp PUBLIC lzfse usbmuxd LibDataChannel::LibDataChannel)
 install(TARGETS record3d_cpp lzfse usbmuxd plist EXPORT Record3DConfig
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
@@ -59,9 +64,9 @@ if(BUILD_PYTHON_BINDINGS)
     include_directories(python-bindings/pybind11/include)
 
     include_directories(${PYTHON_INCLUDE_DIRS})
-    add_library(record3d_py STATIC src/Record3DStream.cpp src/JPEGDecoder.cpp)
+    add_library(record3d_py STATIC src/Record3DStream.cpp src/JPEGDecoder.cpp src/WebRTCSignaling.cpp)
     target_compile_definitions(record3d_py PRIVATE PYTHON_BINDINGS_BUILD)
-    target_link_libraries(record3d_py lzfse usbmuxd)
+    target_link_libraries(record3d_py lzfse usbmuxd LibDataChannel::LibDataChannel)
 
     add_subdirectory(python-bindings/pybind11)
     pybind11_add_module(record3d python-bindings/src/PythonBindings.cpp)
@@ -74,9 +79,23 @@ endif()
 ### Create demo project that uses the library
 ########################################################################
 add_executable(demo src/DemoMain.cpp)
-target_link_libraries(demo record3d_cpp)
+target_link_libraries(demo record3d_cpp LibDataChannel::LibDataChannel)
 if (OpenCV_FOUND)
     target_link_libraries(demo ${OpenCV_LIBS})
 endif ()
 
 set(CMAKE_SKIP_INSTALL_ALL_DEPENDENCY true)
+
+########################################################################
+### Unit Tests
+########################################################################
+if(BUILD_TESTS)
+    enable_testing()
+    add_executable(record3d_tests tests/test_webrtc_stream.cpp)
+    target_link_libraries(record3d_tests PRIVATE record3d_cpp LibDataChannel::LibDataChannel)
+    # If GTest or Catch2 were used, you'd link them here too, e.g.
+    # target_link_libraries(record3d_tests PRIVATE GTest::GTest GTest::Main)
+
+    include(CTest)
+    add_test(NAME WebRTCTests COMMAND record3d_tests)
+endif()

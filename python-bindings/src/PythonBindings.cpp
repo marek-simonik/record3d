@@ -40,7 +40,16 @@ PYBIND11_MODULE( record3d, m )
             .def(py::init<>())
             .def_static( "get_connected_devices", &Record3D::Record3DStream::GetConnectedDevices, "Get IDs of connected devices." )
             .def("disconnect", &Record3D::Record3DStream::Disconnect, "Close connection to currently paired iOS device.")
-            .def("connect", &Record3D::Record3DStream::ConnectToDevice, "Connect to iOS device and start receiving RGBD frames.")
+            .def("connect", &Record3D::Record3DStream::ConnectToDevice, "Connect to iOS device and start receiving RGBD frames via USB.", py::arg("device"))
+            .def("connect_to_device_via_webrtc", &Record3D::Record3DStream::ConnectToDeviceViaWebRTC,
+                 "Connect to a device via WebRTC. Initiates the WebRTC connection process.",
+                 py::arg("ip_address"), py::arg("port") = 8080)
+            .def("set_remote_sdp", &Record3D::Record3DStream::SetRemoteSdpFromPython,
+                 "Provide a remote SDP (offer or answer) to the WebRTC engine.",
+                 py::arg("type"), py::arg("sdp"))
+            .def("add_ice_candidate", &Record3D::Record3DStream::AddIceCandidateFromPython,
+                 "Provide a remote ICE candidate to the WebRTC engine.",
+                 py::arg("candidate"), py::arg("mid"))
             .def("get_depth_frame", &Record3D::Record3DStream::GetCurrentDepthFrame, "Returns the current Depth frame.")
             .def("get_rgb_frame", &Record3D::Record3DStream::GetCurrentRGBFrame, "Return the current RGB frame.")
             .def("get_confidence_frame", &Record3D::Record3DStream::GetCurrentConfidenceFrame, "Return the current Confidence frame (corresponding to the current Depth frame).")
@@ -50,5 +59,7 @@ PYBIND11_MODULE( record3d, m )
             .def("get_device_type", &Record3D::Record3DStream::GetCurrentDeviceType, "Returns the type of camera (TrueDeph = 0, LiDAR = 1).")
             .def_readwrite("on_new_frame", &Record3D::Record3DStream::onNewFrame, "Method called upon receiving new frame.")
             .def_readwrite("on_stream_stopped", &Record3D::Record3DStream::onStreamStopped, "Method called when stream is interrupted.")
+            .def_readwrite("on_local_sdp", &Record3D::Record3DStream::on_local_sdp_for_python_, "Callback invoked when local SDP (offer/answer) is ready.")
+            .def_readwrite("on_local_ice_candidate", &Record3D::Record3DStream::on_local_ice_candidate_for_python_, "Callback invoked when a local ICE candidate is available.")
             ;
 }

@@ -6,14 +6,21 @@
 #include <mutex>
 #include <atomic>
 #include <array>
-#include "Record3DStructs.h"
+#include "Record3DStructs.h" // Contains DeviceInfo, IntrinsicMatrixCoeffs, CameraPose
 #include <stdint.h>
 #include <functional>
-#include <string.h>
+#include <string> // For std::string
+#include <memory> // For std::unique_ptr
+#include <cstring> // For memcpy in Getters
+
+#include "record3d/WebRTCSignaling.h"
+#include <rtc/rtc.hpp> // For rtc::PeerConnection::State in callback, and rtc::Configuration
+
 
 #ifdef PYTHON_BINDINGS_BUILD
 #include <pybind11/pybind11.h>
 #include <pybind11/numpy.h>
+#include <pybind11/functional.h> // Required for std::function pybind bindings
 namespace py = pybind11;
 #endif
 
@@ -28,109 +35,28 @@ namespace Record3D
     class Record3DStream
     {
     public:
-        /**
-         * Represents single connection to a device. Each instance represents connection to an individual device.
-         * Upon connecting to a selected device, a callback function is specified that will be passed the RGB and Depth
-         * frames.
-         */
         Record3DStream();
-
         ~Record3DStream();
 
-        /**
-         * Returns list of currently attached USB devices which can be later passed into the `ConnectToDevice` method.
-         * @return list of currently attached devices.
-         */
         static std::vector<DeviceInfo> GetConnectedDevices();
-
-        /**
-         * Connect to a selected iDevice via USB. The `onNewFrame()` callback will be called upon receiving
-         * a new RGBD frame from the iDevice.
-         *
-         * The callback function is going to be called on non-main thread, therefore it is not suitable for performing
-         * UI-related tasks (such as displaying images via OpenCV).
-         *
-         * The callback function is intended only for copying the passed RGB and Depth buffers into your application's
-         * internal buffers. No computation should be done in it as such behaviour could introduce stream lag when
-         * spending too much time in it.
-         *
-         * You can be connected to only one device in a `Record3DStream` instance. Trying to connect to a different
-         * iDevice using this function while being already connected does nothing. You will need to first disconnect
-         * from the current device via `Disconnect()`.
-         *
-         * @param $device an iDevice from the list of devices obtained via `GetConnectedDevices()`.
-         * @returns boolean value indicating whether connection has been established.
-         */
         bool ConnectToDevice(const DeviceInfo &$device);
-
-        /**
-         * Manually terminate the current streaming session.
-         */
         void Disconnect();
 
-    private:
-        /**
-         * Runloop that reads from the connected iDevice and processes received data.
-         */
-        void StreamProcessingRunloop();
-
-        /**
-         * Decompresses incoming compressed depth frame into $destinationBuffer of known size.
-         *
-         * @param $compressedBuffer the buffer containing LZFSE-compressed depth frame.
-         * @param $compressedBufferSize size of the compressed buffer.
-         * @param $destinationBuffer buffer into which the decompressed depth frame is going to be written.
-         * @returns pointer to the decompressed buffer. In case of decompression failure, `nullptr` is returned.
-         */
-        uint8_t* DecompressBuffer(const uint8_t* $compressedBuffer, size_t $compressedBufferSize, std::vector<uint8_t> &$destinationBuffer);
-
-        /**
-         * Wraps the standard `recv()` function to ensure the *exact* amount of bytes (`$numBytesToRead`) is read into the $outputBuffer.
-         *
-         * @param $socketHandle socket handle obtained as the return value of `usbmuxd_connect()`.
-         * @param $outputBuffer buffer that should be written into.
-         * @param $numBytesToRead exact amount of bytes that should be read from $socketHandle and written into $socketHandle.
-         * @return the amount of bytes actually read. Usually it is equal to $numBytesToRead, but in case connection is interrupted, the amount will be different.
-         */
-        uint32_t ReceiveWholeBuffer(int $socketHandle, uint8_t* $outputBuffer, uint32_t $numBytesToRead);
+        // --- WebRTC ---
+        bool ConnectToDeviceViaWebRTC(const std::string& ip_address, uint16_t port = 8080);
+        void SetRemoteSdpFromPython(const std::string& type, const std::string& sdp);
+        void AddIceCandidateFromPython(const std::string& candidate, const std::string& mid);
 
     public:
         // Constants
-        static constexpr uint16_t DEVICE_PORT{ 1337 }; /** Port on iDevice that we are listening to for RGBD stream. */
+        static constexpr uint16_t DEVICE_PORT{ 1337 };
 
 #ifdef PYTHON_BINDINGS_BUILD
-        /**
-         * NOTE: This is alternative API for Python.
-         *
-         * This function is called when a new RGBD frame is received. The RGBD data and current intrinsic matrix are intended
-         * to be read via the `GetCurrentDepthFrame()`, `GetCurrentRGBFrame()` and `GetCurrentIntrinsicMatrix()` accessors.
-         */
         std::function<void()> onNewFrame{};
+        // Python-settable callbacks for WebRTC signaling
+        std::function<void(const std::string& type, const std::string& sdp)> on_local_sdp_for_python_;
+        std::function<void(const std::string& candidate, const std::string& mid)> on_local_ice_candidate_for_python_;
 #else
-        /**
-         * This function is called when a new RGBD frame is received.
-         *
-         * The callback function is going to be called on non-main thread, therefore it is not suitable for performing
-         * UI-related tasks (such as displaying images via OpenCV).
-         *
-         * The callback function is intended only to copy the passed RGB and Depth buffers into your application's
-         * internal buffers. No computation should be done in it as such behaviour could introduce stream lag when
-         * spending too much time in it.
-         *
-         * @param $rgbFrame RGB buffer.
-         * @param $depthFrame Depth buffer.
-         * @param $confFrame Confidence buffer.
-         * @param $miscData Misc buffer (reserved).
-         * @param $rgbWidth width of the RGB frame.
-         * @param $rgbHeight height of the RGB frame.
-         * @param $depthWidth width of the Depth frame.
-         * @param $depthHeight height of the Depth frame.
-         * @param $confWidth width of Confidence frame (0 if there is no confidence frame).
-         * @param $confHeight height of Confidence frame (0 if there is no confidence frame).
-         * @param $deviceType type of the camera used for streaming.
-         * @param $K four coefficients of the intrinsic matrix corresponding to the RGB frame.
-         * @param $cameraPose camera pose in world space.
-         */
         std::function<void(const Record3D::BufferRGB &$rgbFrame,
                            const Record3D::BufferDepth &$depthFrame,
                            const Record3D::BufferConfidence &$confFrame,
@@ -145,146 +71,135 @@ namespace Record3D
                            Record3D::IntrinsicMatrixCoeffs $K,
                            Record3D::CameraPose $cameraPose)> onNewFrame{};
 #endif
-        /**
-         * This function is called when stream ends (that can happen either due to transfer error or by calling the `Disconnect()` method).
-         */
         std::function<void()> onStreamStopped{};
 
 #ifdef PYTHON_BINDINGS_BUILD
-        /**
-         * NOTE: This is alternative API for Python.
-         *
-         * @returns the current contents of the Depth buffer which holds the lastly received Depth frame.
-         */
-        py::array_t<float> GetCurrentDepthFrame()
-        {
+        // Python API Getters - defined inline for pybind11
+        py::array_t<float> GetCurrentDepthFrame() {
+            std::lock_guard<std::mutex> guard{apiCallsMutex_}; // Protect access to member buffers
             size_t currentFrameWidth = currentFrameDepthWidth_;
             size_t currentFrameHeight = currentFrameDepthHeight_;
-
-            size_t bufferSize  = currentFrameWidth * currentFrameHeight * sizeof(float);
-            auto result        = py::array_t<float>({ static_cast<int>(currentFrameHeight), static_cast<int>(currentFrameWidth) });
-            auto result_buffer = result.request();
-            float *result_ptr  = (float *) result_buffer.ptr;
-
-            std::memcpy(result_ptr, depthImageBuffer_.data(), bufferSize);
-
+            size_t bufferSize  = currentFrameWidth * currentFrameHeight;
+            auto result = py::array_t<float>(bufferSize);
+            if (bufferSize == 0 || depthImageBuffer_.empty()) {
+                 result.resize({0,0}); // Return empty array of correct shape if no data
+                 return result;
+            }
+            result.resize({static_cast<ptrdiff_t>(currentFrameHeight), static_cast<ptrdiff_t>(currentFrameWidth)});
+            float *result_ptr  = static_cast<float *>(result.request().ptr);
+            std::memcpy(result_ptr, depthImageBuffer_.data(), bufferSize * sizeof(float));
             return result;
         }
 
-        /**
-         * NOTE: This is alternative API for Python.
-         *
-         * @returns the current contents of the Confidence buffer which holds the lastly received Depth frame.
-         */
-        py::array_t<uint8_t> GetCurrentConfidenceFrame()
-        {
+        py::array_t<uint8_t> GetCurrentConfidenceFrame() {
+            std::lock_guard<std::mutex> guard{apiCallsMutex_};
             size_t currentFrameWidth = currentFrameConfidenceWidth_;
             size_t currentFrameHeight = currentFrameConfidenceHeight_;
-
-            size_t bufferSize  = currentFrameWidth * currentFrameHeight * sizeof(uint8_t);
-            auto result        = py::array_t<uint8_t>({ static_cast<int>(currentFrameHeight), static_cast<int>(currentFrameWidth) });
-            auto result_buffer = result.request();
-            uint8_t *result_ptr  = (uint8_t *) result_buffer.ptr;
-
-            std::memcpy(result_ptr, confidenceImageBuffer_.data(), bufferSize);
-
+            size_t bufferSize  = currentFrameWidth * currentFrameHeight;
+             auto result = py::array_t<uint8_t>(bufferSize);
+            if (bufferSize == 0 || confidenceImageBuffer_.empty()) {
+                 result.resize({0,0});
+                 return result;
+            }
+            result.resize({static_cast<ptrdiff_t>(currentFrameHeight), static_cast<ptrdiff_t>(currentFrameWidth)});
+            uint8_t *result_ptr  = static_cast<uint8_t *>(result.request().ptr);
+            std::memcpy(result_ptr, confidenceImageBuffer_.data(), bufferSize * sizeof(uint8_t));
             return result;
         }
 
-        /**
-         * NOTE: This is alternative API for Python.
-         *
-         * @returns the current contents of the Misc buffer (reserved).
-         */
-        py::array_t<uint8_t> GetCurrentMiscData()
-        {
-            size_t bufferSize  = miscBuffer_.size();
-            auto result        = py::array_t<uint8_t>( bufferSize );
-            auto result_buffer = result.request();
-            uint8_t *result_ptr  = (uint8_t *) result_buffer.ptr;
-
-            std::memcpy(result_ptr, miscBuffer_.data(), bufferSize);
-
+        py::array_t<uint8_t> GetCurrentMiscData() {
+            std::lock_guard<std::mutex> guard{apiCallsMutex_};
+            if (miscBuffer_.empty()) {
+                return py::array_t<uint8_t>(0);
+            }
+            auto result = py::array_t<uint8_t>(miscBuffer_.size());
+            uint8_t *result_ptr  = static_cast<uint8_t *>(result.request().ptr);
+            std::memcpy(result_ptr, miscBuffer_.data(), miscBuffer_.size() * sizeof(uint8_t));
             return result;
         }
 
-        /**
-         * NOTE: This is alternative API for Python.
-         *
-         * @returns the current contents of the RGB buffer which holds the lastly received RGB frame.
-         */
-        py::array_t<uint8_t> GetCurrentRGBFrame()
-        {
+        py::array_t<uint8_t> GetCurrentRGBFrame() {
+            std::lock_guard<std::mutex> guard{apiCallsMutex_};
             size_t currentFrameWidth = currentFrameRGBWidth_;
             size_t currentFrameHeight = currentFrameRGBHeight_;
-
             constexpr int numChannels = 3;
-            size_t bufferSize  = currentFrameWidth * currentFrameHeight * numChannels * sizeof(uint8_t);
-            auto result        = py::array_t<uint8_t>({ static_cast<int>(currentFrameHeight), static_cast<int>(currentFrameWidth), numChannels });
-            auto result_buffer = result.request();
-            uint8_t *result_ptr  = (uint8_t *) result_buffer.ptr;
-
-            std::memcpy(result_ptr, RGBImageBuffer_.data(), bufferSize);
-
+            size_t bufferSize  = currentFrameWidth * currentFrameHeight * numChannels;
+            auto result = py::array_t<uint8_t>(bufferSize);
+             if (bufferSize == 0 || RGBImageBuffer_.empty()) {
+                 result.resize({0,0,numChannels});
+                 return result;
+            }
+            result.resize({static_cast<ptrdiff_t>(currentFrameHeight), static_cast<ptrdiff_t>(currentFrameWidth), static_cast<ptrdiff_t>(numChannels)});
+            uint8_t *result_ptr  = static_cast<uint8_t *>(result.request().ptr);
+            std::memcpy(result_ptr, RGBImageBuffer_.data(), bufferSize * sizeof(uint8_t));
             return result;
         }
 
-        /**
-         * NOTE: This is alternative API for Python.
-         *
-         * @returns the intrinsic matrix of the lastly received Depth frame.
-         */
-        IntrinsicMatrixCoeffs GetCurrentIntrinsicMatrix()
-        {
+        IntrinsicMatrixCoeffs GetCurrentIntrinsicMatrix() {
+            std::lock_guard<std::mutex> guard{apiCallsMutex_};
             return rgbIntrinsicMatrixCoeffs_;
         }
 
-        /**
-         * NOTE: This is alternative API for Python.
-         *
-         * @returns the intrinsic matrix of the lastly received Depth frame.
-         */
-        CameraPose GetCurrentCameraPose()
-        {
+        CameraPose GetCurrentCameraPose() {
+            std::lock_guard<std::mutex> guard{apiCallsMutex_};
             return cameraPose_;
         }
 
-        /**
-         * NOTE: This is alternative API for Python.
-         *
-         * @returns the type of camera (TrueDeph = 0, LiDAR = 1).
-         */
-        uint32_t GetCurrentDeviceType()
-        {
-            return (uint32_t) currentDeviceType_;
+        uint32_t GetCurrentDeviceType() {
+            std::lock_guard<std::mutex> guard{apiCallsMutex_};
+            return static_cast<uint32_t>(currentDeviceType_);
         }
 #endif
+
+    private:
+        void StreamProcessingRunloopUSB();
+        uint8_t* DecompressBuffer(const uint8_t* $compressedBuffer, size_t $compressedBufferSize, std::vector<uint8_t> &$destinationBuffer);
+        uint32_t ReceiveWholeBuffer(int $socketHandle, uint8_t* $outputBuffer, uint32_t $numBytesToRead);
+
+        // WebRTC Internal Callback Handlers (called by WebRTCSignaling instance)
+        void OnWebRTCLocalDescription(const std::string& type, const std::string& sdp);
+        void OnWebRTCIceCandidate(const std::string& candidate, const std::string& mid);
+        void OnWebRTCDataChannelOpen();
+    public: // Made public for testing only
+        void OnWebRTCDataChannelMessage(const std::string& message); // message is binary data from datachannel
+    private:
+        void OnWebRTCDataChannelError(const std::string& error);
+        void OnWebRTCConnectionStateChange(rtc::PeerConnection::State state);
+
     private:
         size_t currentFrameRGBWidth_{ 0 };
         size_t currentFrameRGBHeight_{ 0 };
-
         size_t currentFrameDepthWidth_{ 0 };
         size_t currentFrameDepthHeight_{ 0 };
-
         size_t currentFrameConfidenceWidth_{ 0 };
         size_t currentFrameConfidenceHeight_{ 0 };
-
         DeviceType currentDeviceType_ {};
 
-        uint8_t* lzfseScratchBuffer_{ nullptr }; /** Preallocated LZFSE scratch buffer. */
+        uint8_t* lzfseScratchBuffer_{ nullptr };
 
-        int socketHandle_{ -1 }; /** Socket handle representing connection to iDevice. */
-        std::atomic<bool> connectionEstablished_{ false }; /** Flag  */
-        std::thread runloopThread_; /** Background thread on which the main runloop is running. */
+        std::atomic<bool> connectionEstablished_{ false };
+        std::mutex apiCallsMutex_; // Mutex to protect access to shared data like frame buffers and current metadata
 
-        std::mutex apiCallsMutex_; /** Mutex used for guarding API calls. */
+        // USB Streaming members
+        int socketHandle_{ -1 };
+        std::thread usb_runloop_thread_;
 
-        std::vector<uint8_t> depthImageBuffer_{}; /** Holds the most recent Depth buffer. */
-        std::vector<uint8_t> RGBImageBuffer_{}; /** Holds the most recent RGB buffer. */
-        std::vector<uint8_t> confidenceImageBuffer_{}; /** Holds the Confidence map of the most recent Depth buffer. Pixel values: Low: 0, Medium: 1, High: 2 */
-        std::vector<uint8_t> miscBuffer_{}; /** Reserved */
-        IntrinsicMatrixCoeffs rgbIntrinsicMatrixCoeffs_{}; /** Holds the intrinsic matrix of the most recent RGB frame. */
-        CameraPose cameraPose_{}; /** Holds the world position of the most recent camera frame. */
+        // WebRTC Streaming members
+        std::unique_ptr<WebRTCSignaling> webrtc_signaling_;
+
+#ifndef PYTHON_BINDINGS_BUILD // Test-only members when not building for python
+    public:
+        std::function<void(const std::string& type, const std::string& sdp)> test_on_local_sdp_cpp_;
+        std::function<void(const std::string& candidate, const std::string& mid)> test_on_local_ice_candidate_cpp_;
+#endif
+
+        // Common frame data members
+        std::vector<uint8_t> depthImageBuffer_{};
+        std::vector<uint8_t> RGBImageBuffer_{};
+        std::vector<uint8_t> confidenceImageBuffer_{};
+        std::vector<uint8_t> miscBuffer_{};
+        IntrinsicMatrixCoeffs rgbIntrinsicMatrixCoeffs_{};
+        CameraPose cameraPose_{};
     };
 }
 #endif //CPP_RECORD3DSTREAM_H
