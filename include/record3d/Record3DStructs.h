@@ -2,6 +2,7 @@
 #define CPP_RECORD3DSTRUCTS_H
 
 #include <cstring>
+#include <string> // Added for std::string
 
 namespace Record3D
 {
